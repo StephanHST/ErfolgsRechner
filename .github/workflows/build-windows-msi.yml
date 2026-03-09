@@ -1,0 +1,56 @@
+name: Build Windows MSI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Java installieren
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Ordner anlegen
+        run: |
+          mkdir out
+          mkdir package-input
+          mkdir build
+
+      - name: Java kompilieren
+        run: |
+          javac -d out Java/ErfolgsRechner.java
+
+      - name: JAR bauen
+        run: |
+          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner -C out .
+
+      - name: JAR vorbereiten
+        run: |
+          copy ErfolgsRechner.jar package-input\
+
+      - name: Windows MSI bauen
+        run: |
+          jpackage ^
+            --input package-input ^
+            --dest build ^
+            --name ErfolgsRechner ^
+            --main-jar ErfolgsRechner.jar ^
+            --main-class Java.ErfolgsRechner ^
+            --type msi ^
+            --icon assets/ErfolgsRechner.ico ^
+            --win-menu ^
+            --win-shortcut ^
+            --vendor "Stephan Hofmann"
+
+      - name: Artifact hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErfolgsRechner-windows
+          path: build/*.msi
