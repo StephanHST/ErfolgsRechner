@@ -1,9 +1,16 @@
-ErfolgsRechner
+# ErfolgsRechner #
 
-Ein kleines Tool zur Analyse von Engpässen bei Zielerreichung.
+Ein kleines Tool zur Analyse von Engpässen bei der Zielerreichung.
 
-Download:
-Releases → Windows Installer (.msi) -> https://github.com/StephanHST/ErfolgsRechner/releases/download/Tracker/ErfolgsRechner-1.0.msi
+Der Rechner zeigt, welcher Faktor aktuell den größten Einfluss
+auf den Erfolg hat und visualisiert den Verlauf über Zeit.
 
-Start:
-Nach Installation im Startmenü „ErfolgsRechner“.
+## Download
+
+Windows
+ErfolgsRechner-x.x.msi
+
+Mac
+ErfolgsRechner-x.x.dmg
+
+Zur Realase Seite: https://github.com/StephanHST/ErfolgsRechner/releases
