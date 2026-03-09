@@ -18,24 +18,29 @@ jobs:
           java-version: '21'
 
       - name: Ordner anlegen
+        shell: cmd
         run: |
-          mkdir out
-          mkdir package-input
-          mkdir build
+          if not exist out mkdir out
+          if not exist package-input mkdir package-input
+          if not exist build mkdir build
 
       - name: Java kompilieren
+        shell: cmd
         run: |
           javac -d out ErfolgsRechner.java
 
       - name: JAR bauen
+        shell: cmd
         run: |
           jar cfe ErfolgsRechner.jar Java.ErfolgsRechner -C out .
 
       - name: JAR vorbereiten
+        shell: cmd
         run: |
           copy ErfolgsRechner.jar package-input\
 
       - name: Windows MSI bauen
+        shell: cmd
         run: |
           jpackage ^
             --input package-input ^
@@ -44,7 +49,7 @@ jobs:
             --main-jar ErfolgsRechner.jar ^
             --main-class Java.ErfolgsRechner ^
             --type msi ^
-            --icon assets/ErfolgsRechner.ico ^
+            --icon assets\ErfolgsRechner.ico ^
             --win-menu ^
             --win-shortcut ^
             --vendor "Stephan Hofmann"
