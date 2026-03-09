@@ -13,4 +13,4 @@ ErfolgsRechner-x.x.msi
 Mac
 ErfolgsRechner-x.x.dmg
 
-Zur Realase Seite: https://github.com/StephanHST/ErfolgsRechner/releases
+Zur Release Seite: https://github.com/StephanHST/ErfolgsRechner/releases
