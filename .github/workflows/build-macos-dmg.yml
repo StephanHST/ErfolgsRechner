@@ -1,0 +1,54 @@
+# .github/workflows/build-macos-dmg.yml
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Java installieren
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Ordner anlegen
+        run: |
+          mkdir -p out package-input build
+
+      - name: Java kompilieren
+        run: |
+          javac -d out ErfolgsRechner.java
+
+      - name: JAR bauen
+        run: |
+          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner -C out .
+
+      - name: JAR vorbereiten
+        run: |
+          cp ErfolgsRechner.jar package-input/
+
+      - name: DMG bauen
+        run: |
+          jpackage \
+            --input package-input \
+            --dest build \
+            --name ErfolgsRechner \
+            --main-jar ErfolgsRechner.jar \
+            --main-class Java.ErfolgsRechner \
+            --type dmg \
+            --icon assets/ErfolgsRechner.icns \
+            --app-version 1.0 \
+            --vendor "Stephan Hofmann"
+
+      - name: Artifact hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErfolgsRechner-macos-dmg
+          path: build/*.dmg
