@@ -25,7 +25,7 @@ jobs:
 
       - name: Java kompilieren
         run: |
-          javac -d out Java/ErfolgsRechner.java
+          javac -d out ErfolgsRechner.java
 
       - name: JAR bauen
         run: |
