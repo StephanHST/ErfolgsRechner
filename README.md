@@ -1,6 +1,6 @@
 # ErfolgsRechner #
 
-Ein kleines Tool zur Analyse von Engpässen und ermittlung von Verhaltens - Hebeln bei der Zielerreichung.
+Ein kleines Tool zur Analyse von Engpässen und Ermittlung von Verhaltens - Hebeln bei der Zielerreichung.
 
 Der Rechner zeigt, welcher Faktor aktuell den größten Einfluss
 auf den Erfolg hat und visualisiert den Verlauf über Zeit.
