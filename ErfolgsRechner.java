@@ -10,6 +10,7 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +18,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Properties;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class ErfolgsRechner {
 
@@ -95,6 +99,66 @@ public class ErfolgsRechner {
 
     private static Path getHistoryFilePath() {
         return Paths.get(System.getProperty("user.home"), ".erfolgsrechner-history.txt");
+    }
+
+    private static Path getStateFilePath() {
+        return Paths.get(System.getProperty("user.home"), ".erfolgsrechner-state.properties");
+    }
+
+    private static void saveUiState(JSlider wSlider, JSlider cSlider, JSlider tSlider, List<LimitFactor> limits, JTextField noteField) {
+        Properties props = new Properties();
+        props.setProperty("w", String.valueOf(wSlider.getValue()));
+        props.setProperty("c", String.valueOf(cSlider.getValue()));
+        props.setProperty("t", String.valueOf(tSlider.getValue()));
+        props.setProperty("note", noteField.getText() == null ? "" : noteField.getText());
+
+        for (LimitFactor l : limits) {
+            props.setProperty("limit." + l.name, String.valueOf(l.slider.getValue()));
+        }
+
+        Path stateFile = getStateFilePath();
+        try (OutputStream out = Files.newOutputStream(
+                stateFile,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE)) {
+            props.store(out, "ErfolgsRechner UI State");
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static void loadUiState(JSlider wSlider, JSlider cSlider, JSlider tSlider, List<LimitFactor> limits, JTextField noteField) {
+        Path stateFile = getStateFilePath();
+        if (!Files.exists(stateFile)) {
+            return;
+        }
+
+        Properties props = new Properties();
+        try (InputStream in = Files.newInputStream(stateFile, StandardOpenOption.READ)) {
+            props.load(in);
+
+            wSlider.setValue(parseSliderValue(props.getProperty("w"), wSlider.getValue()));
+            cSlider.setValue(parseSliderValue(props.getProperty("c"), cSlider.getValue()));
+            tSlider.setValue(parseSliderValue(props.getProperty("t"), tSlider.getValue()));
+            noteField.setText(props.getProperty("note", ""));
+
+            for (LimitFactor l : limits) {
+                l.slider.setValue(parseSliderValue(props.getProperty("limit." + l.name), l.slider.getValue()));
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static int parseSliderValue(String value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return Math.max(0, Math.min(100, parsed));
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     private static void appendHistory(double w, double c, double t, List<LimitFactor> limits, String minName, double min, double base, double successPercent, String note) {
@@ -195,35 +259,98 @@ public class ErfolgsRechner {
     }
 
     private static JPanel createHistoryChartPanel(java.util.List<HistoryEntry> allEntries) {
-        java.util.List<HistoryEntry> entries = new java.util.ArrayList<>();
+        final java.util.List<HistoryEntry> entries = new java.util.ArrayList<>();
         int start = Math.max(0, allEntries.size() - 14);
         for (int i = start; i < allEntries.size(); i++) {
             entries.add(allEntries.get(i));
         }
 
-        Map<String, String> bottleneckByDate = new LinkedHashMap<>();
-        for (HistoryEntry entry : entries) {
-            bottleneckByDate.put(entry.date, entry.minName + " (" + new DecimalFormat("0.00").format(entry.min * 100) + "%)");
-        }
-        Map<String, java.util.List<String>> notesByDate = new LinkedHashMap<>();
-        for (HistoryEntry entry : entries) {
-            if (entry.note != null && !entry.note.trim().isEmpty()) {
-                notesByDate.computeIfAbsent(entry.date, k -> new ArrayList<>()).add(entry.note.trim());
-            }
-        }
-
-        final int noteCount;
-        int tmpNoteCount = 0;
-        for (HistoryEntry entry : entries) {
-            if (entry.note != null && !entry.note.trim().isEmpty()) {
-                tmpNoteCount++;
-            }
-        }
-        noteCount = tmpNoteCount;
-
         return new JPanel() {
+            private int[] lastXs = new int[0];
+            private int[] lastYs = new int[0];
+            private java.util.List<HistoryEntry> lastEntries = new ArrayList<>();
+            private final Cursor defaultCursor = Cursor.getDefaultCursor();
+            private final Cursor deleteHoverCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
+
+            {
+                addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mouseClicked(java.awt.event.MouseEvent e) {
+                        int clickRadius = 10;
+                        for (int i = 0; i < lastXs.length; i++) {
+                            int dx = e.getX() - lastXs[i];
+                            int dy = e.getY() - lastYs[i];
+                            if ((dx * dx) + (dy * dy) <= clickRadius * clickRadius && i < lastEntries.size()) {
+                                HistoryEntry selected = lastEntries.get(i);
+                                String shortDate;
+                                try {
+                                    shortDate = java.time.LocalDate.parse(selected.date)
+                                            .format(DateTimeFormatter.ofPattern("d.M."));
+                                } catch (Exception ex) {
+                                    shortDate = selected.date;
+                                }
+
+                                int choice = JOptionPane.showConfirmDialog(
+                                        thisPanel(),
+                                        "Diesen Eintrag vom " + shortDate + " löschen?",
+                                        "Eintrag löschen",
+                                        JOptionPane.YES_NO_OPTION,
+                                        JOptionPane.WARNING_MESSAGE
+                                );
+
+                                if (choice == JOptionPane.YES_OPTION) {
+                                    boolean deleted = deleteHistoryEntryByTimestamp(selected.timestamp);
+                                    if (deleted) {
+                                        entries.remove(selected);
+                                        revalidate();
+                                        repaint();
+                                    } else {
+                                        JOptionPane.showMessageDialog(
+                                                thisPanel(),
+                                                "Der Eintrag konnte nicht gelöscht werden.",
+                                                "ErfolgsRechner – Verlauf",
+                                                JOptionPane.INFORMATION_MESSAGE
+                                        );
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                    @Override
+                    public void mouseMoved(java.awt.event.MouseEvent e) {
+                        int hoverRadius = 10;
+                        boolean overPoint = false;
+
+                        for (int i = 0; i < lastXs.length; i++) {
+                            int dx = e.getX() - lastXs[i];
+                            int dy = e.getY() - lastYs[i];
+                            if ((dx * dx) + (dy * dy) <= hoverRadius * hoverRadius) {
+                                overPoint = true;
+                                break;
+                            }
+                        }
+
+                        setCursor(overPoint ? deleteHoverCursor : defaultCursor);
+                    }
+                });
+            }
+
+            private JPanel thisPanel() {
+                return this;
+            }
+
             @Override
             public Dimension getPreferredSize() {
+                int noteCount = 0;
+                for (HistoryEntry entry : entries) {
+                    if (entry.note != null && !entry.note.trim().isEmpty()) {
+                        noteCount++;
+                    }
+                }
                 int preferredHeight = 760 + Math.max(0, noteCount - 2) * 70;
                 return new Dimension(1220, preferredHeight);
             }
@@ -290,6 +417,11 @@ public class ErfolgsRechner {
                     return;
                 }
 
+                Map<String, String> bottleneckByDate = new LinkedHashMap<>();
+                for (HistoryEntry entry : entries) {
+                    bottleneckByDate.put(entry.date, entry.minName + " (" + new DecimalFormat("0.00").format(entry.min * 100) + "%)");
+                }
+
                 int count = entries.size();
                 int[] xs = new int[count];
                 int[] ys = new int[count];
@@ -300,6 +432,10 @@ public class ErfolgsRechner {
                     xs[i] = left + (int) Math.round(xRatio * chartWidth);
                     ys[i] = top + chartHeight - (int) Math.round((entry.success / 100.0) * chartHeight);
                 }
+
+                lastXs = xs.clone();
+                lastYs = ys.clone();
+                lastEntries = new ArrayList<>(entries);
 
                 g2.setColor(new Color(90, 130, 220));
                 for (int i = 0; i < count - 1; i++) {
@@ -350,7 +486,7 @@ public class ErfolgsRechner {
                 g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
                 g2.setColor(new Color(60, 60, 60));
                 int legendY = top + chartHeight + 45;
-                g2.drawString("Engpässe pro Datum:", left, legendY);
+                g2.drawString("Hebel pro Datum (Klick auf einen Punkt löscht den Eintrag):", left, legendY);
 
                 int legendLine = 1;
                 for (Map.Entry<String, String> entry : bottleneckByDate.entrySet()) {
@@ -423,6 +559,97 @@ public class ErfolgsRechner {
         }
     }
 
+    private static boolean deleteHistoryEntryByTimestamp(String timestampToDelete) {
+        Path historyFile = getHistoryFilePath();
+        if (!Files.exists(historyFile)) {
+            return false;
+        }
+
+        try {
+            List<String> lines = Files.readAllLines(historyFile);
+            List<String> updated = new ArrayList<>();
+            boolean removed = false;
+
+            for (String line : lines) {
+                String timestamp = extractTimestamp(line);
+                if (!removed && timestamp.equals(timestampToDelete)) {
+                    removed = true;
+                    continue;
+                }
+                updated.add(line);
+            }
+
+            if (removed) {
+                Files.write(
+                        historyFile,
+                        updated,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.CREATE
+                );
+            }
+
+            return removed;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private static boolean deleteUiState() {
+        Path stateFile = getStateFilePath();
+        try {
+            return Files.deleteIfExists(stateFile);
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private static boolean exportHistoryAsCsv(File targetFile) {
+        java.util.List<HistoryEntry> entries = readHistoryEntries();
+        if (entries.isEmpty()) {
+            return false;
+        }
+
+        Path targetPath = targetFile.toPath();
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                targetPath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE)) {
+
+            writer.write("timestamp,date,hebel,minWert,erfolgswahrscheinlichkeit,notiz");
+            writer.newLine();
+
+            for (HistoryEntry entry : entries) {
+                writer.write(csvEscape(entry.timestamp));
+                writer.write(",");
+                writer.write(csvEscape(entry.date));
+                writer.write(",");
+                writer.write(csvEscape(entry.minName));
+                writer.write(",");
+                writer.write(String.format(java.util.Locale.US, "%.2f", entry.min * 100));
+                writer.write(",");
+                writer.write(String.format(java.util.Locale.US, "%.2f", entry.success));
+                writer.write(",");
+                writer.write(csvEscape(entry.note == null ? "" : entry.note));
+                writer.newLine();
+            }
+
+            return true;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private static String csvEscape(String value) {
+        String safe = value == null ? "" : value;
+        safe = safe.replace("\r", " ").replace("\n", " ");
+        if (safe.contains(",") || safe.contains("\"") || safe.contains(";")) {
+            safe = safe.replace("\"", "\"\"");
+            return "\"" + safe + "\"";
+        }
+        return safe;
+    }
+
     private static double extractValue(String line, String key) {
         String[] parts = line.split(";");
         for (String part : parts) {
@@ -450,6 +677,53 @@ public class ErfolgsRechner {
     private static String extractTimestamp(String line) {
         String[] parts = line.split(";");
         return parts.length > 0 ? parts[0] : "-";
+    }
+
+    private static double calculateSuccessPercent(double w, double c, double t, List<LimitFactor> limits) {
+        double min = 1.0;
+        for (LimitFactor l : limits) {
+            if (l.value() < min) {
+                min = l.value();
+            }
+        }
+
+        double base = (w * c + t);
+        double successPercent = base * min * 100.0;
+
+        if (successPercent > 100) successPercent = 100;
+        if (successPercent < 0) successPercent = 0;
+
+        return successPercent;
+    }
+
+    private static double calculateSuccessPercentWithValues(double w, double c, double t, List<Double> limitValues) {
+        double min = 1.0;
+        for (Double value : limitValues) {
+            if (value < min) {
+                min = value;
+            }
+        }
+
+        double base = (w * c + t);
+        double successPercent = base * min * 100.0;
+
+        if (successPercent > 100) successPercent = 100;
+        if (successPercent < 0) successPercent = 0;
+
+        return successPercent;
+    }
+
+    private static String formatFactorDisplayName(String key) {
+        switch (key) {
+            case "w":
+                return "Zielklarheit";
+            case "c":
+                return "Konzentration";
+            case "t":
+                return "Zeit";
+            default:
+                return key;
+        }
     }
 
         private static String getSuccessPhase(double successPercent) {
@@ -589,6 +863,29 @@ public class ErfolgsRechner {
         frame.setLocationRelativeTo(null);
         frame.setLayout(new BorderLayout());
 
+        JMenuBar menuBar = new JMenuBar();
+
+        JMenu dateiMenu = new JMenu("Datei");
+        JMenu hilfeMenu = new JMenu("Hilfe");
+
+        JMenuItem verlaufLoeschenItem = new JMenuItem("Verlauf löschen");
+        JMenuItem statusLoeschenItem = new JMenuItem("Statusdatei löschen");
+        JMenuItem csvExportItem = new JMenuItem("CSV exportieren");
+        JMenuItem beendenItem = new JMenuItem("Beenden");
+        JMenuItem ueberItem = new JMenuItem("Über ErfolgsRechner");
+
+        dateiMenu.add(verlaufLoeschenItem);
+        dateiMenu.add(statusLoeschenItem);
+        dateiMenu.add(csvExportItem);
+        dateiMenu.addSeparator();
+        dateiMenu.add(beendenItem);
+
+        hilfeMenu.add(ueberItem);
+
+        menuBar.add(dateiMenu);
+        menuBar.add(hilfeMenu);
+        frame.setJMenuBar(menuBar);
+
         JPanel panel = new JPanel();
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -656,6 +953,8 @@ public class ErfolgsRechner {
         noteField.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(noteField);
 
+        loadUiState(wSlider, cSlider, tSlider, limits, noteField);
+
         panel.add(Box.createVerticalStrut(12));
 
         JButton calculate = new JButton("Berechnen");
@@ -670,7 +969,7 @@ public class ErfolgsRechner {
 
         showHistory.addActionListener((ActionEvent e) -> showHistoryChart(frame));
 
-        deleteHistoryButton.addActionListener((ActionEvent e) -> {
+        Runnable deleteHistoryAction = () -> {
             int choice = JOptionPane.showConfirmDialog(
                     frame,
                     "Willst du den gespeicherten Verlauf wirklich löschen?",
@@ -690,7 +989,49 @@ public class ErfolgsRechner {
                         JOptionPane.INFORMATION_MESSAGE
                 );
             }
+        };
+
+        deleteHistoryButton.addActionListener((ActionEvent e) -> deleteHistoryAction.run());
+        verlaufLoeschenItem.addActionListener((ActionEvent e) -> deleteHistoryAction.run());
+
+        statusLoeschenItem.addActionListener((ActionEvent e) -> {
+            int choice = JOptionPane.showConfirmDialog(
+                    frame,
+                    "Willst du die gespeicherten Slider-Stände wirklich löschen?",
+                    "Statusdatei löschen",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+
+            if (choice == JOptionPane.YES_OPTION) {
+                boolean deleted = deleteUiState();
+                JOptionPane.showMessageDialog(
+                        frame,
+                        deleted
+                                ? "Die gespeicherten UI-Werte wurden gelöscht."
+                                : "Es war keine Statusdatei vorhanden oder sie konnte nicht gelöscht werden.",
+                        "ErfolgsRechner – Status",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+            }
         });
+
+        beendenItem.addActionListener((ActionEvent e) -> {
+            saveUiState(wSlider, cSlider, tSlider, limits, noteField);
+            frame.dispose();
+        });
+
+        ueberItem.addActionListener((ActionEvent e) -> JOptionPane.showMessageDialog(
+                frame,
+                "<html><div style='font-family:sans-serif; width:320px;'>"
+                        + "<h2 style='margin-top:0;'>ErfolgsRechner</h2>"
+                        + "<p>Ein kleines Tool zur Analyse von Hebeln bei der Zielerreichung.</p>"
+                        + "<p><b>Version:</b> 1.1</p>"
+                        + "<p>Es zeigt, welcher Faktor aktuell den größten Einfluss auf dein Ergebnis hat und visualisiert den Verlauf über Zeit.</p>"
+                        + "</div></html>",
+                "Über ErfolgsRechner",
+                JOptionPane.INFORMATION_MESSAGE
+        ));
 
         calculate.addActionListener((ActionEvent e) -> {
 
@@ -703,12 +1044,9 @@ public class ErfolgsRechner {
             }
 
             double min = 1.0;
-            String minName = "";
-
             for (LimitFactor l : limits) {
                 if (l.value() < min) {
                     min = l.value();
-                    minName = l.name;
                 }
             }
 
@@ -719,69 +1057,203 @@ public class ErfolgsRechner {
             double successPercent = r * 100;
             if (successPercent > 100) successPercent = 100;
             if (successPercent < 0) successPercent = 0;
-            appendHistory(w, c, t, limits, minName, min, base, successPercent, note);
+
+            String bestLeverName = "";
+            double bestLeverCurrentValue = 0;
+            double bestLeverImprovedValue = 0;
+            double bestLeverResult = successPercent;
+            double bestLeverDelta = Double.NEGATIVE_INFINITY;
+
+            String secondLeverName = "";
+            double secondLeverDelta = Double.NEGATIVE_INFINITY;
+
+            double candidateW = Math.min(1.0, w + 0.10);
+            double candidateWResult = calculateSuccessPercent(candidateW, c, t, limits);
+            double candidateWDelta = candidateWResult - successPercent;
+            if (candidateWDelta > bestLeverDelta) {
+                secondLeverDelta = bestLeverDelta;
+                secondLeverName = bestLeverName;
+                bestLeverDelta = candidateWDelta;
+                bestLeverName = "Zielklarheit";
+                bestLeverCurrentValue = w * 100;
+                bestLeverImprovedValue = candidateW * 100;
+                bestLeverResult = candidateWResult;
+            } else if (candidateWDelta > secondLeverDelta) {
+                secondLeverDelta = candidateWDelta;
+                secondLeverName = "Zielklarheit";
+            }
+
+            double candidateC = Math.min(1.0, c + 0.10);
+            double candidateCResult = calculateSuccessPercent(w, candidateC, t, limits);
+            double candidateCDelta = candidateCResult - successPercent;
+            if (candidateCDelta > bestLeverDelta) {
+                secondLeverDelta = bestLeverDelta;
+                secondLeverName = bestLeverName;
+                bestLeverDelta = candidateCDelta;
+                bestLeverName = "Konzentration";
+                bestLeverCurrentValue = c * 100;
+                bestLeverImprovedValue = candidateC * 100;
+                bestLeverResult = candidateCResult;
+            } else if (candidateCDelta > secondLeverDelta) {
+                secondLeverDelta = candidateCDelta;
+                secondLeverName = "Konzentration";
+            }
+
+            double candidateT = Math.min(1.0, t + 0.10);
+            double candidateTResult = calculateSuccessPercent(w, c, candidateT, limits);
+            double candidateTDelta = candidateTResult - successPercent;
+            if (candidateTDelta > bestLeverDelta) {
+                secondLeverDelta = bestLeverDelta;
+                secondLeverName = bestLeverName;
+                bestLeverDelta = candidateTDelta;
+                bestLeverName = "Zeit";
+                bestLeverCurrentValue = t * 100;
+                bestLeverImprovedValue = candidateT * 100;
+                bestLeverResult = candidateTResult;
+            } else if (candidateTDelta > secondLeverDelta) {
+                secondLeverDelta = candidateTDelta;
+                secondLeverName = "Zeit";
+            }
+
+            for (int i = 0; i < limits.size(); i++) {
+                LimitFactor factor = limits.get(i);
+                List<Double> candidateLimitValues = new ArrayList<>();
+                for (int j = 0; j < limits.size(); j++) {
+                    double value = limits.get(j).value();
+                    if (i == j) {
+                        value = Math.min(1.0, value + 0.10);
+                    }
+                    candidateLimitValues.add(value);
+                }
+
+                double candidateResult = calculateSuccessPercentWithValues(w, c, t, candidateLimitValues);
+                double candidateDelta = candidateResult - successPercent;
+                if (candidateDelta > bestLeverDelta) {
+                    secondLeverDelta = bestLeverDelta;
+                    secondLeverName = bestLeverName;
+                    bestLeverDelta = candidateDelta;
+                    bestLeverName = factor.name;
+                    bestLeverCurrentValue = factor.value() * 100;
+                    bestLeverImprovedValue = Math.min(1.0, factor.value() + 0.10) * 100;
+                    bestLeverResult = candidateResult;
+                } else if (candidateDelta > secondLeverDelta) {
+                    secondLeverDelta = candidateDelta;
+                    secondLeverName = factor.name;
+                }
+            }
+
+            appendHistory(w, c, t, limits, bestLeverName, min, base, successPercent, note);
+            saveUiState(wSlider, cSlider, tSlider, limits, noteField);
 
             String trendSummary = buildTrendSummary();
 
             String recommendationTitle = "Empfehlung für heute";
             StringBuilder recommendationText = new StringBuilder();
 
-            switch (minName) {
+            switch (bestLeverName) {
                 case "Energie":
-                    recommendationText.append("Stabilisiere zuerst deine Energie: weniger Druck, klare Pausen, Bewegung, Schlaf und nur die wichtigsten Aufgaben.");
+                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Energie: weniger Druck, klare Pausen, Bewegung, Schlaf und nur die wichtigsten Aufgaben.");
                     break;
                 case "Emotionale Stabilität":
-                    recommendationText.append("Reduziere zuerst innere Reibung: offene Schleifen schließen, Erwartungen senken, Reize reduzieren und für mehr Ruhe im System sorgen.");
+                    recommendationText.append("Der größte Hebel liegt aktuell in deiner emotionalen Stabilität: offene Schleifen schließen, Erwartungen senken, Reize reduzieren und für mehr Ruhe im System sorgen.");
                     break;
                 case "Ressourcen":
-                    recommendationText.append("Prüfe zuerst Hebel bei Zeit, Geld oder Unterstützung: priorisieren, delegieren, vereinfachen oder verschieben.");
+                    recommendationText.append("Der größte Hebel liegt aktuell bei deinen Ressourcen: priorisieren, delegieren, vereinfachen oder verschieben.");
                     break;
                 case "Wissenstand":
-                    recommendationText.append("Der größte Hebel liegt gerade im Wissen: kurz recherchieren, nachfragen oder eine Wissenslücke gezielt schließen.");
+                    recommendationText.append("Der größte Hebel liegt aktuell im Wissen: kurz recherchieren, nachfragen oder eine Wissenslücke gezielt schließen.");
+                    break;
+                case "Zielklarheit":
+                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Zielklarheit: den nächsten Schritt sauber definieren und die Richtung schärfen.");
+                    break;
+                case "Konzentration":
+                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Konzentration: Ablenkung reduzieren und Fokus bewusst schützen.");
+                    break;
+                case "Zeit":
+                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Zeit: bewusst ein größeres Zeitfenster freischaufeln und Prioritäten schärfen.");
                     break;
                 default:
-                    recommendationText.append("Schütze den aktuell schwächsten Faktor zuerst, bevor du auf maximalen Output gehst.");
+                    recommendationText.append("Richte deine Aufmerksamkeit zuerst auf den aktuell größten Hebel, bevor du auf maximalen Output gehst.");
                     break;
             }
 
-            List<String> followUps = new ArrayList<>();
-
-            if (w < 0.4) {
-                followUps.add("danach Zielklarheit erhöhen und den nächsten Schritt sauber definieren");
-            }
-
-            if (c < 0.4) {
-                followUps.add("anschließend Ablenkung reduzieren und Konzentration schützen");
-            }
-
-            if (t < 0.4) {
-                followUps.add("außerdem bewusst ein größeres Zeitfenster freischaufeln");
-            }
-
-            if (!followUps.isEmpty()) {
-                recommendationText.append(" ");
-                recommendationText.append("Danach ");
-                recommendationText.append(String.join(", ", followUps));
-                recommendationText.append(".");
+            if (!secondLeverName.isEmpty() && !secondLeverName.equals(bestLeverName)) {
+                switch (secondLeverName) {
+                    case "Energie":
+                        recommendationText.append(" Versuche bitte zusätzlich deine Energie etwas bewusster zu schützen.");
+                        break;
+                    case "Emotionale Stabilität":
+                        recommendationText.append(" Am Rande macht es auch Sinn, etwas mehr emotionale Ruhe in dein System zu bringen.");
+                        break;
+                    case "Ressourcen":
+                        recommendationText.append(" Um mehr Stabilität zu generieren, ordne deine Ressourcen etwas klüger bzw. suche dir passende Hilfe.");
+                        break;
+                    case "Wissenstand":
+                        recommendationText.append(" Damit du weißt was du tust, solltest du deine kleine Wissenslücke gezielt schließen.");
+                        break;
+                    case "Zielklarheit":
+                        recommendationText.append(" Damit du deine Energie nicht verpulverst, zieh dein Ziel noch etwas klarer und entscheide den nächsten Schritt sauber.");
+                        break;
+                    case "Konzentration":
+                        recommendationText.append(" Damit deine Energie nicht verpufft, schütze deinen Fokus etwas konsequenter vor Ablenkung.");
+                        break;
+                    case "Zeit":
+                        recommendationText.append(" Damit dein Vorhaben wirklich Raum bekommt, schaufle dir zusätzlich ein wenig mehr Zeit frei.");
+                        break;
+                    default:
+                        recommendationText.append(" Behalte daneben auch den zweitgrößten Hebel im Blick, weil dort zusätzlicher Schwung entstehen kann.");
+                        break;
+                }
             }
 
             DecimalFormat df = new DecimalFormat("0.00");
             String successPhase = getSuccessPhase(successPercent);
 
+            String leverText = "Der aktuell größte Hebel ist " + bestLeverName
+                    + ". Wenn du diesen Wert um 10 Prozentpunkte verbesserst ("
+                    + df.format(bestLeverCurrentValue) + "% → "
+                    + df.format(bestLeverImprovedValue) + "%), steigt deine Erfolgswahrscheinlichkeit von "
+                    + df.format(successPercent) + "% auf "
+                    + df.format(bestLeverResult) + "% ("
+                    + (bestLeverDelta >= 0 ? "+" : "")
+                    + df.format(bestLeverDelta) + " Prozentpunkte).";
+
             String message = "<html>"
-                    + "<div style='font-family:sans-serif; padding:10px; width:420px;'>"
-                    + "<h2 style='margin-top:0;'>Ergebnisanalyse | " + successPhase + "</h2>"
-                    + "<p><b>Aktueller Engpass:</b> " + minName + "</p>"
-                    + "<p><b>Stärke dieses Faktors:</b> " + df.format(min * 100) + "%</p>"
-                    + "<p><b>Der Engpass bremst dein Gesamtergebnis aktuell um " + df.format((1 - min) * 100) + "%.</b></p>"
-                    + "<hr>"
-                    + "<p><b>Basisleistung (w × c + t):</b> " + df.format(base) + "</p>"
-                    + "<p><b>Erwartete Erfolgswahrscheinlichkeit:</b> " + df.format(successPercent) + "%</p>"
-                    + (!note.isEmpty() ? "<p><b>Notiz:</b> " + note + "</p>" : "")
-                    + "<hr>"
-                    + trendSummary
-                    + "<hr>"
-                    + "<p><b>" + recommendationTitle + ":</b><br>" + recommendationText.toString() + "</p>"
+                    + "<div style='font-family:sans-serif; padding:14px 16px; width:500px; color:#222;'>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Analyse deines aktuellen Zustands</div>"
+                    + "<h2 style='margin:0 0 12px 0;'>Ergebnisanalyse | " + successPhase + "</h2>"
+
+                    + "<div style='margin-bottom:10px; padding:10px 12px; border:1px solid #d8d8d8; background:#f7f7f7;'>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Stärkster aktueller Hebel</div>"
+                    + "<div style='font-size:18px; font-weight:bold; margin-bottom:6px;'>" + bestLeverName + "</div>"
+                    + "<div><b>Aktueller Wert:</b> " + df.format(bestLeverCurrentValue) + "%</div>"
+                    + "<div><b>Potenzial bei +10 Punkten:</b> " + (bestLeverDelta >= 0 ? "+" : "") + df.format(bestLeverDelta) + " Prozentpunkte</div>"
+                    + "</div>"
+
+                    + "<div style='margin-bottom:10px;'>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Leistungsbild</div>"
+                    + "<div><b>Basisleistung (w × c + t):</b> " + df.format(base) + "</div>"
+                    + "<div><b>Erwartete Erfolgswahrscheinlichkeit:</b> " + df.format(successPercent) + "%</div>"
+                    + (!note.isEmpty() ? "<div><b>Notiz:</b> " + note + "</div>" : "")
+                    + "</div>"
+
+                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
+                    + "<div style='margin-bottom:10px;'>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Wirkung einer kleinen Verbesserung</div>"
+                    + "<div>" + leverText + "</div>"
+                    + "</div>"
+
+                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
+                    + "<div style='margin-bottom:10px;'>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Verlauf</div>"
+                    + "<div>" + trendSummary.replace("<p>", "").replace("</p>", "") + "</div>"
+                    + "</div>"
+
+                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
+                    + "<div>"
+                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Empfehlung für heute</div>"
+                    + "<div>" + recommendationText.toString() + "</div>"
+                    + "</div>"
                     + "</div></html>";
 
             noteField.setText("");
@@ -805,6 +1277,32 @@ public class ErfolgsRechner {
         scrollPane.setBorder(null);
 
         frame.add(scrollPane, BorderLayout.CENTER);
+        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                saveUiState(wSlider, cSlider, tSlider, limits, noteField);
+            }
+        });
+        csvExportItem.addActionListener((ActionEvent e) -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Verlauf als CSV exportieren");
+            chooser.setSelectedFile(new File("erfolgsrechner-verlauf.csv"));
+
+            int result = chooser.showSaveDialog(frame);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File selectedFile = chooser.getSelectedFile();
+                boolean exported = exportHistoryAsCsv(selectedFile);
+
+                JOptionPane.showMessageDialog(
+                        frame,
+                        exported
+                                ? "Der Verlauf wurde als CSV exportiert."
+                                : "Es sind keine Verlaufsdaten vorhanden oder der Export ist fehlgeschlagen.",
+                        "ErfolgsRechner – CSV Export",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+            }
+        });
         frame.setVisible(true);
     }
 }
