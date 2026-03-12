@@ -96,7 +96,7 @@ jobs:
           xcrun notarytool submit build/*.dmg \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$TEAM_ID" \
+            --team-id "$APPLE_TEAM_ID" \
             --wait
 
       - name: DMG stapeln
