@@ -28,7 +28,7 @@ public class AssetService {
 
     public List<String> loadThoughts() {
         List<String> thoughts = new ArrayList<>();
-        File file = resolveAssetFile("thoughts.json");
+        File file = resolveAssetFile("/Java/ErfolgsRechner/assets/thoughts.json");
 
         if (file == null || !file.exists()) {
             return thoughts;
