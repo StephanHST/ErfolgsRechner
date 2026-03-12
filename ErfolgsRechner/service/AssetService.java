@@ -1,4 +1,3 @@
-
 package Java.ErfolgsRechner.service;
 
 import javax.swing.*;
@@ -67,15 +66,23 @@ public class AssetService {
     }
 
     public ImageIcon loadArrowIcon(String filename, int width, int height) {
-        File file = resolveAssetFile(filename);
+        try {
+            java.net.URL resource = getClass().getResource("/Java/ErfolgsRechner/assets/" + filename);
+            if (resource != null) {
+                ImageIcon raw = new ImageIcon(resource);
+                Image scaled = raw.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
+                return new ImageIcon(scaled);
+            }
+        } catch (Exception ignored) {
+        }
 
+        File file = resolveAssetFile(filename);
         if (file == null || !file.exists()) {
             return null;
         }
 
         ImageIcon raw = new ImageIcon(file.getAbsolutePath());
         Image scaled = raw.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-
         return new ImageIcon(scaled);
     }
 }
