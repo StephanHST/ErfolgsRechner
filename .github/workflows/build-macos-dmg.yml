@@ -25,6 +25,13 @@ jobs:
         run: |
           mkdir -p out package-input build
 
+      - name: Assets nach out kopieren
+        run: |
+          mkdir -p out/Java/ErfolgsRechner/assets
+          cp ErfolgsRechner/assets/arrowUp.png out/Java/ErfolgsRechner/assets/
+          cp ErfolgsRechner/assets/arrowRight.png out/Java/ErfolgsRechner/assets/
+          cp ErfolgsRechner/assets/arrowDown.png out/Java/ErfolgsRechner/assets/
+
       - name: Java kompilieren
         run: |
           find ErfolgsRechner -name "*.java" -print0 | xargs -0 javac -d out
