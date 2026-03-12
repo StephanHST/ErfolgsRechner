@@ -3,6 +3,7 @@ package Java.ErfolgsRechner.service;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import java.io.InputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -28,10 +29,9 @@ public class AssetService {
 
     public List<String> loadThoughts() {
         List<String> thoughts = new ArrayList<>();
-        try {
-            java.net.URL resource = getClass().getResource("/Java/ErfolgsRechner/assets/thoughts.json");
-            if (resource != null) {
-                String json = Files.readString(java.nio.file.Paths.get(resource.toURI()));
+        try (InputStream resourceStream = getClass().getResourceAsStream("/Java/ErfolgsRechner/assets/thoughts.json")) {
+            if (resourceStream != null) {
+                String json = new String(resourceStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 Matcher matcher = Pattern.compile("\\\"((?:\\\\.|[^\\\"])*)\\\"").matcher(json);
 
                 while (matcher.find()) {
