@@ -1,12 +1,12 @@
 # .github/workflows/build-macos-dmg.yml
 name: Build macOS DMG
 
+on:
+  workflow_dispatch:
+  
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   
-on:
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: macos-latest
