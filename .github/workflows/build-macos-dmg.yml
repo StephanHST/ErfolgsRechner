@@ -24,11 +24,11 @@ jobs:
 
       - name: Java kompilieren
         run: |
-          javac -d out ErfolgsRechner.java
+          find ErfolgsRechner -name "*.java" -print0 | xargs -0 javac -d out
 
       - name: JAR bauen
         run: |
-          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner -C out .
+          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner.ErfolgsRechner -C out .
 
       - name: JAR vorbereiten
         run: |
@@ -41,10 +41,10 @@ jobs:
             --dest build \
             --name ErfolgsRechner \
             --main-jar ErfolgsRechner.jar \
-            --main-class Java.ErfolgsRechner \
+            --main-class Java.ErfolgsRechner.ErfolgsRechner \
             --type dmg \
             --icon assets/ErfolgsRechner.icns \
-            --app-version 1.0 \
+            --app-version 1.2 \
             --vendor "Stephan Hofmann"
 
       - name: Artifact hochladen
