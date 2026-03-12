@@ -46,7 +46,7 @@ jobs:
             --main-jar ErfolgsRechner.jar \
             --main-class Java.ErfolgsRechner.ErfolgsRechner \
             --type dmg \
-            --icon assets/ErfolgsRechner.icns \
+            --icon ErfolgsRechner/assets/ErfolgsRechner.icns \
             --app-version 1.2 \
             --vendor "Stephan Hofmann"
 
