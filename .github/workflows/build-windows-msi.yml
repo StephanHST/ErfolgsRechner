@@ -25,14 +25,14 @@ jobs:
           if not exist build mkdir build
 
       - name: Java kompilieren
-        shell: cmd
+        shell: powershell
         run: |
-          javac -d out ErfolgsRechner.java
+          Get-ChildItem -Path ErfolgsRechner -Recurse -Filter *.java | ForEach-Object { $_.FullName } | javac -d out @-
 
       - name: JAR bauen
         shell: cmd
         run: |
-          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner -C out .
+          jar cfe ErfolgsRechner.jar Java.ErfolgsRechner.ErfolgsRechner -C out .
 
       - name: JAR vorbereiten
         shell: cmd
@@ -47,9 +47,10 @@ jobs:
             --dest build ^
             --name ErfolgsRechner ^
             --main-jar ErfolgsRechner.jar ^
-            --main-class Java.ErfolgsRechner ^
+            --main-class Java.ErfolgsRechner.ErfolgsRechner ^
             --type msi ^
             --icon assets\ErfolgsRechner.ico ^
+            --app-version 1.2 ^
             --win-menu ^
             --win-shortcut ^
             --vendor "Stephan Hofmann"
