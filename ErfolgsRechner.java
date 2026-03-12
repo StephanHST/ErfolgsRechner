@@ -1,536 +1,118 @@
-package Java;
+package Java.ErfolgsRechner;
+
+import Java.ErfolgsRechner.model.HistoryEntry;
+import Java.ErfolgsRechner.model.LimitFactor;
+import Java.ErfolgsRechner.service.AssetService;
+import Java.ErfolgsRechner.service.AnalysisResultService;
+import Java.ErfolgsRechner.service.FontService;
+import Java.ErfolgsRechner.service.HistoryService;
+import Java.ErfolgsRechner.service.OverviewService;
+import Java.ErfolgsRechner.service.RecommendationService;
+import Java.ErfolgsRechner.service.StateService;
+import Java.ErfolgsRechner.service.SuccessCalculator;
+import Java.ErfolgsRechner.service.TopicService;
+import Java.ErfolgsRechner.ui.HistoryChartPanel;
+import Java.ErfolgsRechner.ui.HistoryPreviewChartPanel;
+import Java.ErfolgsRechner.ui.MainFrame;
+import Java.ErfolgsRechner.ui.DashboardPanel;
+import Java.ErfolgsRechner.ui.InputPanel;
+import Java.ErfolgsRechner.ui.RoundedButton;
+import Java.ErfolgsRechner.ui.UIFactory;
+import Java.ErfolgsRechner.ui.DialogFactory;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.geom.Ellipse2D;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.text.DecimalFormat;
+import java.io.File;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Properties;
-import java.io.InputStream;
-import java.io.OutputStream;
 
 public class ErfolgsRechner {
 
-    static class LimitFactor {
-        String name;
-        JSlider slider;
-        JLabel valueLabel;
+    private static final FontService FONT_SERVICE = new FontService();
+    private static final AssetService ASSET_SERVICE = new AssetService();
+    private static final AnalysisResultService ANALYSIS_RESULT_SERVICE = new AnalysisResultService();
+    private static final HistoryService HISTORY_SERVICE = new HistoryService();
+    private static final StateService STATE_SERVICE = new StateService();
+    private static final TopicService TOPIC_SERVICE = new TopicService();
+    private static final SuccessCalculator SUCCESS_CALCULATOR = new SuccessCalculator();
+    private static final RecommendationService RECOMMENDATION_SERVICE = new RecommendationService();
+    private static final DialogFactory DIALOG_FACTORY = new DialogFactory();
+    private static final OverviewService OVERVIEW_SERVICE = new OverviewService(
+            HISTORY_SERVICE,
+            RECOMMENDATION_SERVICE,
+            SUCCESS_CALCULATOR
+    );
 
-        LimitFactor(String name) {
-            this.name = name;
-            this.slider = new JSlider(0, 100, 50);
-            this.slider.setMajorTickSpacing(20);
-            this.slider.setMinorTickSpacing(5);
-            this.slider.setPaintTicks(true);
-            this.slider.setPaintLabels(true);
-            this.valueLabel = new JLabel("50 %");
-            this.valueLabel.setPreferredSize(new Dimension(60, 25));
-            this.slider.addChangeListener(e -> this.valueLabel.setText(this.slider.getValue() + " %"));
-        }
-
-        double value() {
-            return slider.getValue() / 100.0;
-        }
-    }
-
-    static class HistoryEntry {
-        String timestamp;
-        String date;
-        String minName;
-        double min;
-        double success;
-        String note;
-
-        HistoryEntry(String timestamp, String date, String minName, double min, double success, String note) {
-            this.timestamp = timestamp;
-            this.date = date;
-            this.minName = minName;
-            this.min = min;
-            this.success = success;
-            this.note = note;
-        }
+    private static void loadNotoSansFont() {
+        FONT_SERVICE.loadNotoSansFont();
     }
 
     private static JSlider createSlider() {
-        JSlider s = new JSlider(0, 100, 50);
-        s.setMajorTickSpacing(20);
-        s.setMinorTickSpacing(5);
-        s.setPaintTicks(true);
-        s.setPaintLabels(true);
-        return s;
-    }
-
-    private static JPanel createSliderRow(String labelText, JSlider slider, JLabel valueLabel) {
-        JPanel row = new JPanel(new BorderLayout(10, 0));
-        row.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
-
-        JLabel label = new JLabel(labelText);
-        label.setPreferredSize(new Dimension(190, 25));
-
-        valueLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-        row.add(label, BorderLayout.WEST);
-        row.add(slider, BorderLayout.CENTER);
-        row.add(valueLabel, BorderLayout.EAST);
-
-        return row;
+        return UIFactory.createSlider();
     }
 
     private static JLabel createValueLabel(JSlider slider) {
-        JLabel valueLabel = new JLabel(slider.getValue() + " %");
-        valueLabel.setPreferredSize(new Dimension(60, 25));
-        valueLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-        slider.addChangeListener(e -> valueLabel.setText(slider.getValue() + " %"));
-        return valueLabel;
+        return UIFactory.createValueLabel(slider);
     }
 
-    private static Path getHistoryFilePath() {
-        return Paths.get(System.getProperty("user.home"), ".erfolgsrechner-history.txt");
+    private static String loadCurrentTopic() {
+        return TOPIC_SERVICE.loadCurrentTopic();
     }
 
-    private static Path getStateFilePath() {
-        return Paths.get(System.getProperty("user.home"), ".erfolgsrechner-state.properties");
+    private static void saveCurrentTopic(String topic) {
+        TOPIC_SERVICE.saveCurrentTopic(topic);
     }
 
     private static void saveUiState(JSlider wSlider, JSlider cSlider, JSlider tSlider, List<LimitFactor> limits, JTextField noteField) {
-        Properties props = new Properties();
-        props.setProperty("w", String.valueOf(wSlider.getValue()));
-        props.setProperty("c", String.valueOf(cSlider.getValue()));
-        props.setProperty("t", String.valueOf(tSlider.getValue()));
-        props.setProperty("note", noteField.getText() == null ? "" : noteField.getText());
-
-        for (LimitFactor l : limits) {
-            props.setProperty("limit." + l.name, String.valueOf(l.slider.getValue()));
-        }
-
-        Path stateFile = getStateFilePath();
-        try (OutputStream out = Files.newOutputStream(
-                stateFile,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE)) {
-            props.store(out, "ErfolgsRechner UI State");
-        } catch (IOException ignored) {
-        }
+        STATE_SERVICE.saveUiState(wSlider, cSlider, tSlider, limits, noteField);
     }
 
     private static void loadUiState(JSlider wSlider, JSlider cSlider, JSlider tSlider, List<LimitFactor> limits, JTextField noteField) {
-        Path stateFile = getStateFilePath();
-        if (!Files.exists(stateFile)) {
-            return;
-        }
-
-        Properties props = new Properties();
-        try (InputStream in = Files.newInputStream(stateFile, StandardOpenOption.READ)) {
-            props.load(in);
-
-            wSlider.setValue(parseSliderValue(props.getProperty("w"), wSlider.getValue()));
-            cSlider.setValue(parseSliderValue(props.getProperty("c"), cSlider.getValue()));
-            tSlider.setValue(parseSliderValue(props.getProperty("t"), tSlider.getValue()));
-            noteField.setText(props.getProperty("note", ""));
-
-            for (LimitFactor l : limits) {
-                l.slider.setValue(parseSliderValue(props.getProperty("limit." + l.name), l.slider.getValue()));
-            }
-        } catch (IOException ignored) {
-        }
+        STATE_SERVICE.loadUiState(wSlider, cSlider, tSlider, limits, noteField);
     }
 
-    private static int parseSliderValue(String value, int fallback) {
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            return Math.max(0, Math.min(100, parsed));
-        } catch (NumberFormatException ex) {
-            return fallback;
-        }
-    }
 
     private static void appendHistory(double w, double c, double t, List<LimitFactor> limits, String minName, double min, double base, double successPercent, String note) {
-        Path historyFile = getHistoryFilePath();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-        StringBuilder line = new StringBuilder();
-        line.append(LocalDateTime.now().format(formatter)).append(";");
-        line.append("w=").append(String.format(java.util.Locale.US, "%.2f", w)).append(";");
-        line.append("c=").append(String.format(java.util.Locale.US, "%.2f", c)).append(";");
-        line.append("t=").append(String.format(java.util.Locale.US, "%.2f", t)).append(";");
-
-        for (LimitFactor l : limits) {
-            line.append(l.name).append("=").append(String.format(java.util.Locale.US, "%.2f", l.value())).append(";");
-        }
-
-        line.append("minName=").append(minName).append(";");
-        line.append("min=").append(String.format(java.util.Locale.US, "%.2f", min)).append(";");
-        line.append("base=").append(String.format(java.util.Locale.US, "%.2f", base)).append(";");
-        line.append("success=").append(String.format(java.util.Locale.US, "%.2f", successPercent)).append(";");
-        String safeNote = note == null ? "" : note.replace(";", ",").replace("\n", " ").replace("\r", " ").trim();
-        line.append("note=").append(safeNote);
-
-        try (BufferedWriter writer = Files.newBufferedWriter(
-                historyFile,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND)) {
-            writer.write(line.toString());
-            writer.newLine();
-        } catch (IOException ex) {
-            ex.printStackTrace();
-        }
+        HISTORY_SERVICE.appendHistory(w, c, t, limits, minName, min, base, successPercent, note);
     }
 
     private static String buildTrendSummary() {
-        Path historyFile = getHistoryFilePath();
-
-        if (!Files.exists(historyFile)) {
-            return "<p><b>Verlauf:</b> Noch keine Verlaufsdaten vorhanden.</p>";
-        }
-
-        try {
-            List<String> lines = Files.readAllLines(historyFile);
-            if (lines.size() < 2) {
-                return "<p><b>Verlauf:</b> Erste Messung gespeichert.</p>";
-            }
-
-            String last = lines.get(lines.size() - 1);
-            String previous = lines.get(lines.size() - 2);
-
-            double lastSuccess = extractValue(last, "success");
-            double prevSuccess = extractValue(previous, "success");
-            double delta = lastSuccess - prevSuccess;
-
-            String direction;
-            if (delta > 3) {
-                direction = "steigend ↑";
-            } else if (delta < -3) {
-                direction = "fallend ↓";
-            } else {
-                direction = "stabil →";
-            }
-
-            return "<p><b>Verlauf:</b> Erfolgswahrscheinlichkeit im Vergleich zur letzten Messung: <b>"
-                    + direction
-                    + "</b> ("
-                    + (delta >= 0 ? "+" : "")
-                    + new DecimalFormat("0.00").format(delta)
-                    + "%).</p>";
-        } catch (IOException ex) {
-            return "<p><b>Verlauf:</b> Konnte nicht gelesen werden.</p>";
-        }
+        return HISTORY_SERVICE.buildTrendSummary();
     }
 
-    private static java.util.List<HistoryEntry> readHistoryEntries() {
-        Path historyFile = getHistoryFilePath();
-        java.util.List<HistoryEntry> entries = new java.util.ArrayList<>();
 
-        if (!Files.exists(historyFile)) {
-            return entries;
-        }
 
-        try {
-            java.util.List<String> lines = Files.readAllLines(historyFile);
-            for (String line : lines) {
-                String timestamp = extractTimestamp(line);
-                String date = timestamp.length() >= 10 ? timestamp.substring(0, 10) : timestamp;
-                String minName = extractTextValue(line, "minName");
-                double min = extractValue(line, "min");
-                double success = extractValue(line, "success");
-                String note = extractTextValue(line, "note");
-                entries.add(new HistoryEntry(timestamp, date, minName, min, success, note));
-            }
-        } catch (IOException ignored) {
-        }
+    private static void showHistoryChart(Component parent) {
+        java.util.List<HistoryEntry> entries = HISTORY_SERVICE.readHistoryEntries();
 
-        return entries;
-    }
-
-    private static JPanel createHistoryChartPanel(java.util.List<HistoryEntry> allEntries) {
-        final java.util.List<HistoryEntry> entries = new java.util.ArrayList<>();
-        int start = Math.max(0, allEntries.size() - 14);
-        for (int i = start; i < allEntries.size(); i++) {
-            entries.add(allEntries.get(i));
-        }
-
-        return new JPanel() {
-            private int[] lastXs = new int[0];
-            private int[] lastYs = new int[0];
-            private java.util.List<HistoryEntry> lastEntries = new ArrayList<>();
-            private final Cursor defaultCursor = Cursor.getDefaultCursor();
-            private final Cursor deleteHoverCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
-
-            {
-                addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override
-                    public void mouseClicked(java.awt.event.MouseEvent e) {
-                        int clickRadius = 10;
-                        for (int i = 0; i < lastXs.length; i++) {
-                            int dx = e.getX() - lastXs[i];
-                            int dy = e.getY() - lastYs[i];
-                            if ((dx * dx) + (dy * dy) <= clickRadius * clickRadius && i < lastEntries.size()) {
-                                HistoryEntry selected = lastEntries.get(i);
-                                String shortDate;
-                                try {
-                                    shortDate = java.time.LocalDate.parse(selected.date)
-                                            .format(DateTimeFormatter.ofPattern("d.M."));
-                                } catch (Exception ex) {
-                                    shortDate = selected.date;
-                                }
-
-                                int choice = JOptionPane.showConfirmDialog(
-                                        thisPanel(),
-                                        "Diesen Eintrag vom " + shortDate + " löschen?",
-                                        "Eintrag löschen",
-                                        JOptionPane.YES_NO_OPTION,
-                                        JOptionPane.WARNING_MESSAGE
-                                );
-
-                                if (choice == JOptionPane.YES_OPTION) {
-                                    boolean deleted = deleteHistoryEntryByTimestamp(selected.timestamp);
-                                    if (deleted) {
-                                        entries.remove(selected);
-                                        revalidate();
-                                        repaint();
-                                    } else {
-                                        JOptionPane.showMessageDialog(
-                                                thisPanel(),
-                                                "Der Eintrag konnte nicht gelöscht werden.",
-                                                "ErfolgsRechner – Verlauf",
-                                                JOptionPane.INFORMATION_MESSAGE
-                                        );
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                });
-
-                addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
-                    @Override
-                    public void mouseMoved(java.awt.event.MouseEvent e) {
-                        int hoverRadius = 10;
-                        boolean overPoint = false;
-
-                        for (int i = 0; i < lastXs.length; i++) {
-                            int dx = e.getX() - lastXs[i];
-                            int dy = e.getY() - lastYs[i];
-                            if ((dx * dx) + (dy * dy) <= hoverRadius * hoverRadius) {
-                                overPoint = true;
-                                break;
-                            }
-                        }
-
-                        setCursor(overPoint ? deleteHoverCursor : defaultCursor);
-                    }
-                });
-            }
-
-            private JPanel thisPanel() {
-                return this;
-            }
-
-            @Override
-            public Dimension getPreferredSize() {
-                int noteCount = 0;
-                for (HistoryEntry entry : entries) {
-                    if (entry.note != null && !entry.note.trim().isEmpty()) {
-                        noteCount++;
-                    }
-                }
-                int preferredHeight = 760 + Math.max(0, noteCount - 2) * 70;
-                return new Dimension(1220, preferredHeight);
-            }
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                int width = getWidth();
-                int height = getHeight();
-                int left = 75;
-                int right = 75;
-                int top = 85;
-                int bottom = 150;
-
-                g2.setColor(Color.WHITE);
-                g2.fillRect(0, 0, width, height);
-
-                g2.setColor(new Color(60, 60, 60));
-                g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-                g2.drawString("Verlauf der Erfolgswahrscheinlichkeit", left, 32);
-
-                int chartWidth = Math.max(1, width - left - right);
-                int chartHeight = Math.max(1, height - top - bottom);
-
-                int y100 = top;
-                int y60 = top + chartHeight - (int) Math.round((60 / 100.0) * chartHeight);
-                int y35 = top + chartHeight - (int) Math.round((35 / 100.0) * chartHeight);
-                int y20 = top + chartHeight - (int) Math.round((20 / 100.0) * chartHeight);
-                int y0 = top + chartHeight;
-
-                // Hintergrundzonen: unten rot (schwach), Mitte gelb, oben grün (stark)
-                g2.setColor(new Color(248, 222, 222));
-                g2.fillRect(left, y20, chartWidth, y0 - y20);
-
-                g2.setColor(new Color(250, 242, 210));
-                g2.fillRect(left, y35, chartWidth, y20 - y35);
-
-                g2.setColor(new Color(245, 236, 200));
-                g2.fillRect(left, y60, chartWidth, y35 - y60);
-
-                g2.setColor(new Color(223, 242, 223));
-                g2.fillRect(left, y100, chartWidth, y60 - y100);
-
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
-                g2.setColor(new Color(210, 210, 210));
-                for (int y = 0; y <= 100; y += 20) {
-                    int py = top + chartHeight - (int) Math.round((y / 100.0) * chartHeight);
-                    g2.drawLine(left, py, left + chartWidth, py);
-                    g2.setColor(new Color(90, 90, 90));
-                    g2.drawString(y + "%", 25, py + 4);
-                    g2.setColor(new Color(210, 210, 210));
+        HistoryChartPanel chartPanel = new HistoryChartPanel(
+            entries,
+            HISTORY_SERVICE,
+            (dialogParent, entry) -> {
+                String shortDate;
+                try {
+                    shortDate = java.time.LocalDate.parse(entry.getDate())
+                            .format(DateTimeFormatter.ofPattern("d.M."));
+                } catch (Exception ex) {
+                    shortDate = entry.getDate();
                 }
 
-                g2.setColor(new Color(90, 90, 90));
-                g2.drawLine(left, top, left, top + chartHeight);
-                g2.drawLine(left, top + chartHeight, left + chartWidth, top + chartHeight);
+                int choice = DIALOG_FACTORY.showStyledConfirmDialog(
+                        dialogParent,
+                        "Diesen Eintrag vom " + shortDate + " löschen?",
+                        "Eintrag löschen"
+                );
 
-                if (entries.isEmpty()) {
-                    g2.setFont(new Font("SansSerif", Font.PLAIN, 14));
-                    g2.drawString("Noch keine Verlaufsdaten vorhanden.", left, top + 30);
-                    g2.dispose();
-                    return;
-                }
-
-                Map<String, String> bottleneckByDate = new LinkedHashMap<>();
-                for (HistoryEntry entry : entries) {
-                    bottleneckByDate.put(entry.date, entry.minName + " (" + new DecimalFormat("0.00").format(entry.min * 100) + "%)");
-                }
-
-                int count = entries.size();
-                int[] xs = new int[count];
-                int[] ys = new int[count];
-
-                for (int i = 0; i < count; i++) {
-                    HistoryEntry entry = entries.get(i);
-                    double xRatio = count == 1 ? 0.5 : i / (double) (count - 1);
-                    xs[i] = left + (int) Math.round(xRatio * chartWidth);
-                    ys[i] = top + chartHeight - (int) Math.round((entry.success / 100.0) * chartHeight);
-                }
-
-                lastXs = xs.clone();
-                lastYs = ys.clone();
-                lastEntries = new ArrayList<>(entries);
-
-                g2.setColor(new Color(90, 130, 220));
-                for (int i = 0; i < count - 1; i++) {
-                    g2.drawLine(xs[i], ys[i], xs[i + 1], ys[i + 1]);
-                }
-
-                for (int i = 0; i < count; i++) {
-                    HistoryEntry entry = entries.get(i);
-                    g2.setColor(new Color(90, 130, 220));
-                    Shape point = new Ellipse2D.Double(xs[i] - 5, ys[i] - 5, 10, 10);
-                    g2.fill(point);
-
-                    g2.setColor(new Color(60, 60, 60));
-                    g2.drawString(new DecimalFormat("0.0").format(entry.success) + "%", xs[i] - 14, ys[i] - 10);
-
-                    String shortDate;
-                    try {
-                        shortDate = java.time.LocalDate.parse(entry.date)
-                                .format(DateTimeFormatter.ofPattern("d.M."));
-                    } catch (Exception ex) {
-                        shortDate = entry.date;
-                    }
-
-                    g2.drawString(shortDate, xs[i] - 16, top + chartHeight + 20);
-                }
-
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
-                g2.setColor(new Color(110, 110, 110, 170));
-
-                FontMetrics fm = g2.getFontMetrics();
-                int labelRight = left + chartWidth - 12;
-
-                String phaseHigh = "Flow / Hochleistung";
-                String phaseProd = "Produktive Phase";
-                String phaseBuild = "Aufbauphase";
-                String phaseLow = "Engpassmodus";
-
-                int highY = y60 - ((y60 - y100) / 2) + (fm.getAscent() / 2);
-                int prodY = y35 - ((y35 - y60) / 2) + (fm.getAscent() / 2);
-                int buildY = y20 - ((y20 - y35) / 2) + (fm.getAscent() / 2);
-                int lowY = y0 - ((y0 - y20) / 2) + (fm.getAscent() / 2);
-
-                g2.drawString(phaseHigh, labelRight - fm.stringWidth(phaseHigh), highY);
-                g2.drawString(phaseProd, labelRight - fm.stringWidth(phaseProd), prodY);
-                g2.drawString(phaseBuild, labelRight - fm.stringWidth(phaseBuild), buildY);
-                g2.drawString(phaseLow, labelRight - fm.stringWidth(phaseLow), lowY);
-
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
-                g2.setColor(new Color(60, 60, 60));
-                int legendY = top + chartHeight + 45;
-                g2.drawString("Hebel pro Datum (Klick auf einen Punkt löscht den Eintrag):", left, legendY);
-
-                int legendLine = 1;
-                for (Map.Entry<String, String> entry : bottleneckByDate.entrySet()) {
-                    String shortDate;
-                    try {
-                        shortDate = java.time.LocalDate.parse(entry.getKey())
-                                .format(DateTimeFormatter.ofPattern("d.M."));
-                    } catch (Exception ex) {
-                        shortDate = entry.getKey();
-                    }
-
-                    int currentY = legendY + (legendLine * 16);
-                    g2.drawString(shortDate + ": " + entry.getValue(), left, currentY);
-                    legendLine++;
-                }
-
-                // Notizboxen zuletzt zeichnen (damit sie immer vorne liegen)
-                for (int i = 0; i < count; i++) {
-                    HistoryEntry entry = entries.get(i);
-
-                    if (entry.note != null && !entry.note.trim().isEmpty()) {
-                        boolean placeAbove = (i % 2 == 0);
-
-                        drawNoteBox(
-                                g2,
-                                entry.note,
-                                xs[i],
-                                ys[i],
-                                placeAbove,
-                                left,
-                                left + chartWidth,
-                                top,
-                                top + chartHeight
-                        );
-                    }
-                }
-                g2.dispose();
-            }
-        };
-    }
-
-    private static void showHistoryChart(JFrame frame) {
-        java.util.List<HistoryEntry> entries = readHistoryEntries();
-        JPanel chartPanel = createHistoryChartPanel(entries);
+                return choice == JOptionPane.YES_OPTION;
+            },
+            (dialogParent) -> DIALOG_FACTORY.showStyledMessageDialog(
+                    dialogParent,
+                    "Der Eintrag konnte nicht gelöscht werden.",
+                    "ErfolgsRechner – Verlauf"
+            )
+        );
 
         JScrollPane scrollPane = new JScrollPane(
                 chartPanel,
@@ -541,327 +123,72 @@ public class ErfolgsRechner {
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         scrollPane.getHorizontalScrollBar().setUnitIncrement(16);
 
-        JOptionPane.showMessageDialog(
-                frame,
+        DIALOG_FACTORY.showStyledMessageDialog(
+                parent,
                 scrollPane,
-                "ErfolgsRechner – Verlauf",
-                JOptionPane.INFORMATION_MESSAGE
+                "ErfolgsRechner – Verlauf"
         );
     }
 
 
     private static boolean deleteHistory() {
-        Path historyFile = getHistoryFilePath();
-        try {
-            return Files.deleteIfExists(historyFile);
-        } catch (IOException ex) {
-            return false;
-        }
-    }
-
-    private static boolean deleteHistoryEntryByTimestamp(String timestampToDelete) {
-        Path historyFile = getHistoryFilePath();
-        if (!Files.exists(historyFile)) {
-            return false;
-        }
-
-        try {
-            List<String> lines = Files.readAllLines(historyFile);
-            List<String> updated = new ArrayList<>();
-            boolean removed = false;
-
-            for (String line : lines) {
-                String timestamp = extractTimestamp(line);
-                if (!removed && timestamp.equals(timestampToDelete)) {
-                    removed = true;
-                    continue;
-                }
-                updated.add(line);
-            }
-
-            if (removed) {
-                Files.write(
-                        historyFile,
-                        updated,
-                        StandardOpenOption.TRUNCATE_EXISTING,
-                        StandardOpenOption.CREATE
-                );
-            }
-
-            return removed;
-        } catch (IOException ex) {
-            return false;
-        }
+        return HISTORY_SERVICE.deleteHistory();
     }
 
     private static boolean deleteUiState() {
-        Path stateFile = getStateFilePath();
-        try {
-            return Files.deleteIfExists(stateFile);
-        } catch (IOException ex) {
-            return false;
-        }
+        return STATE_SERVICE.deleteUiState();
     }
 
     private static boolean exportHistoryAsCsv(File targetFile) {
-        java.util.List<HistoryEntry> entries = readHistoryEntries();
-        if (entries.isEmpty()) {
-            return false;
-        }
-
-        Path targetPath = targetFile.toPath();
-        try (BufferedWriter writer = Files.newBufferedWriter(
-                targetPath,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE)) {
-
-            writer.write("timestamp,date,hebel,minWert,erfolgswahrscheinlichkeit,notiz");
-            writer.newLine();
-
-            for (HistoryEntry entry : entries) {
-                writer.write(csvEscape(entry.timestamp));
-                writer.write(",");
-                writer.write(csvEscape(entry.date));
-                writer.write(",");
-                writer.write(csvEscape(entry.minName));
-                writer.write(",");
-                writer.write(String.format(java.util.Locale.US, "%.2f", entry.min * 100));
-                writer.write(",");
-                writer.write(String.format(java.util.Locale.US, "%.2f", entry.success));
-                writer.write(",");
-                writer.write(csvEscape(entry.note == null ? "" : entry.note));
-                writer.newLine();
-            }
-
-            return true;
-        } catch (IOException ex) {
-            return false;
-        }
-    }
-
-    private static String csvEscape(String value) {
-        String safe = value == null ? "" : value;
-        safe = safe.replace("\r", " ").replace("\n", " ");
-        if (safe.contains(",") || safe.contains("\"") || safe.contains(";")) {
-            safe = safe.replace("\"", "\"\"");
-            return "\"" + safe + "\"";
-        }
-        return safe;
-    }
-
-    private static double extractValue(String line, String key) {
-        String[] parts = line.split(";");
-        for (String part : parts) {
-            if (part.startsWith(key + "=")) {
-                try {
-                    return Double.parseDouble(part.substring((key + "=").length()));
-                } catch (NumberFormatException ignored) {
-                    return 0;
-                }
-            }
-        }
-        return 0;
-    }
-
-    private static String extractTextValue(String line, String key) {
-        String[] parts = line.split(";");
-        for (String part : parts) {
-            if (part.startsWith(key + "=")) {
-                return part.substring((key + "=").length());
-            }
-        }
-        return "-";
-    }
-
-    private static String extractTimestamp(String line) {
-        String[] parts = line.split(";");
-        return parts.length > 0 ? parts[0] : "-";
+        return HISTORY_SERVICE.exportHistoryAsCsv(targetFile);
     }
 
     private static double calculateSuccessPercent(double w, double c, double t, List<LimitFactor> limits) {
-        double min = 1.0;
-        for (LimitFactor l : limits) {
-            if (l.value() < min) {
-                min = l.value();
-            }
-        }
-
-        double base = (w * c + t);
-        double successPercent = base * min * 100.0;
-
-        if (successPercent > 100) successPercent = 100;
-        if (successPercent < 0) successPercent = 0;
-
-        return successPercent;
+        return SUCCESS_CALCULATOR.calculateSuccessPercent(w, c, t, limits);
     }
 
     private static double calculateSuccessPercentWithValues(double w, double c, double t, List<Double> limitValues) {
-        double min = 1.0;
-        for (Double value : limitValues) {
-            if (value < min) {
-                min = value;
-            }
-        }
-
-        double base = (w * c + t);
-        double successPercent = base * min * 100.0;
-
-        if (successPercent > 100) successPercent = 100;
-        if (successPercent < 0) successPercent = 0;
-
-        return successPercent;
+        return SUCCESS_CALCULATOR.calculateSuccessPercentWithValues(w, c, t, limitValues);
     }
 
-    private static String formatFactorDisplayName(String key) {
-        switch (key) {
-            case "w":
-                return "Zielklarheit";
-            case "c":
-                return "Konzentration";
-            case "t":
-                return "Zeit";
-            default:
-                return key;
-        }
+    private static String getSuccessPhase(double successPercent) {
+        return SUCCESS_CALCULATOR.getSuccessPhase(successPercent);
     }
 
-        private static String getSuccessPhase(double successPercent) {
-        if (successPercent < 20) {
-            return "Engpassmodus";
-        } else if (successPercent < 35) {
-            return "Aufbauphase";
-        } else if (successPercent < 60) {
-            return "Produktive Phase";
-        } else {
-            return "Flow / Hochleistung";
-        }
+    private static String pickRandomThought() {
+        return ASSET_SERVICE.pickRandomThought();
     }
 
-        private static java.util.List<String> wrapNoteText(String text, int maxCharsPerLine) {
-        java.util.List<String> lines = new ArrayList<>();
-        if (text == null || text.trim().isEmpty()) {
-            return lines;
-        }
-
-        String[] words = text.trim().split("\\s+");
-        StringBuilder current = new StringBuilder();
-
-        for (String word : words) {
-            if (current.length() == 0) {
-                current.append(word);
-            } else if (current.length() + 1 + word.length() <= maxCharsPerLine) {
-                current.append(" ").append(word);
-            } else {
-                lines.add(current.toString());
-                current = new StringBuilder(word);
-            }
-        }
-
-        if (current.length() > 0) {
-            lines.add(current.toString());
-        }
-
-        return lines;
+    private static ImageIcon loadArrowIcon(String filename, int width, int height) {
+        return ASSET_SERVICE.loadArrowIcon(filename, width, height);
     }
 
-    private static void drawNoteBox(
-        Graphics2D g2,
-        String note,
-        int anchorX,
-        int anchorY,
-        boolean placeAbove,
-        int chartLeft,
-        int chartRight,
-        int chartTop,
-        int chartBottom
-                                    ) {
-        java.util.List<String> lines = wrapNoteText(note, 18);
-        if (lines.isEmpty()) {
-            return;
-        }
-
-        Font originalFont = g2.getFont();
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        FontMetrics fm = g2.getFontMetrics();
-
-        int paddingX = 10;
-        int paddingY = 8;
-        int lineHeight = fm.getHeight();
-        int boxWidth = 160;
-
-        // Höhe dynamisch an Text anpassen (mit kleinem Mindestwert)
-        int contentHeight = lines.size() * lineHeight;
-        int boxHeight = Math.max(40, paddingY * 2 + contentHeight);
-
-        int boxX = anchorX + 12;
-        int boxY = placeAbove ? anchorY - boxHeight - 14 : anchorY + 14;
-        boolean boxOnLeft = false;
-
-        // horizontal innerhalb des Diagramms halten
-        if (boxX + boxWidth > chartRight - 10) {
-            boxX = anchorX - boxWidth - 12;
-            boxOnLeft = true;
-        }
-        if (boxX < chartLeft + 10) {
-            boxX = chartLeft + 10;
-            boxOnLeft = false;
-        }
-
-        // vertikal innerhalb des Diagramms halten
-        if (boxY < chartTop + 10) {
-            boxY = chartTop + 10;
-        }
-        if (boxY + boxHeight > chartBottom - 10) {
-            boxY = chartBottom - boxHeight - 10;
-        }
-
-        // Schatten
-        g2.setColor(new Color(0, 0, 0, 40));
-        g2.fillRoundRect(boxX + 3, boxY + 3, boxWidth, boxHeight, 16, 16);
-
-        // Box
-        g2.setColor(new Color(255, 255, 255, 235));
-        g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 16, 16);
-
-        g2.setColor(new Color(170, 170, 170));
-        g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 16, 16);
-
-        // Verbindungslinie korrekt andocken
-        g2.setColor(new Color(120, 120, 120));
-        int lineStartX = anchorX;
-        int lineStartY = anchorY;
-
-        int lineEndX;
-        int lineEndY;
-
-        if (boxOnLeft) {
-            lineEndX = boxX + boxWidth;
-            lineEndY = placeAbove ? boxY + boxHeight - 14 : boxY + 14;
-        } else {
-            lineEndX = boxX;
-            lineEndY = placeAbove ? boxY + boxHeight - 14 : boxY + 14;
-        }
-
-        g2.drawLine(lineStartX, lineStartY, lineEndX, lineEndY);
-
-        g2.setColor(new Color(55, 55, 55));
-        int textY = boxY + paddingY + fm.getAscent();
-        for (String line : lines) {
-            g2.drawString(line, boxX + paddingX, textY);
-            textY += lineHeight;
-        }
-
-        g2.setFont(originalFont);
+    private static String buildRecommendationForLever(String leverName) {
+        return RECOMMENDATION_SERVICE.buildRecommendationForLever(leverName);
     }
 
-    public static void main(String[] args) {
+    private static String buildSecondLeverHint(String leverName) {
+        return RECOMMENDATION_SERVICE.buildSecondLeverHint(leverName);
+    }
 
-        JFrame frame = new JFrame("ErfolgsRechner");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(920, 520);
-        frame.setLocationRelativeTo(null);
-        frame.setLayout(new BorderLayout());
+    public static void startApp() {
+
+        loadNotoSansFont();
+        DIALOG_FACTORY.installPopupTheme();
+
+        final String randomThought = pickRandomThought();
+        final ImageIcon arrowUpIcon = loadArrowIcon("arrowUp.png", 22, 22);
+        final ImageIcon arrowRightIcon = loadArrowIcon("arrowRight.png", 22, 22);
+        final ImageIcon arrowDownIcon = loadArrowIcon("arrowDown.png", 22, 22);
+        final String[] currentTopic = new String[]{loadCurrentTopic()};
+
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int desiredWidth = 1060;
+        int desiredHeight = 1040;
+        int frameWidth = Math.min(desiredWidth, screenSize.width - 40);
+        int frameHeight = Math.min(desiredHeight, screenSize.height - 40);
+
+        MainFrame frame = new MainFrame("ErfolgsRechner", frameWidth, frameHeight);
 
         JMenuBar menuBar = new JMenuBar();
 
@@ -886,86 +213,122 @@ public class ErfolgsRechner {
         menuBar.add(hilfeMenu);
         frame.setJMenuBar(menuBar);
 
-        JPanel panel = new JPanel();
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        JPanel panel = frame.getRootPanel();
 
-        JLabel info = new JLabel("Bewerte alle Faktoren von 0–100");
-        info.setFont(new Font("SansSerif", Font.BOLD, 20));
-        info.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(info);
-        panel.add(Box.createVerticalStrut(15));
-
-        JLabel limitHeader = new JLabel("Limitierende Faktoren");
-        limitHeader.setFont(new Font("SansSerif", Font.BOLD, 15));
-        limitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(limitHeader);
-        panel.add(Box.createVerticalStrut(8));
+        final int leftCardHeight = 940;
+        final int rightColumnGap = 24;
+        // Give the preview a bit more height and keep the overview more compact.
+        final int previewCardHeight = 310;
+        final int dashboardCardHeight = leftCardHeight - rightColumnGap - previewCardHeight;
 
         // limitierende Faktoren
         List<LimitFactor> limits = new ArrayList<>();
-        limits.add(new LimitFactor("Energie"));
-        limits.add(new LimitFactor("Emotionale Stabilität"));
-        limits.add(new LimitFactor("Ressourcen"));
-        limits.add(new LimitFactor("Wissenstand"));
+        limits.add(new LimitFactor("Energie", createSlider(), null));
+        limits.add(new LimitFactor("Emotionale Stabilität", createSlider(), null));
+        limits.add(new LimitFactor("Ressourcen", createSlider(), null));
+        limits.add(new LimitFactor("Wissenstand", createSlider(), null));
 
-        for (LimitFactor l : limits) {
-            JPanel row = createSliderRow(l.name, l.slider, l.valueLabel);
-            row.setAlignmentX(Component.LEFT_ALIGNMENT);
-            panel.add(row);
+        for (int i = 0; i < limits.size(); i++) {
+            LimitFactor factor = limits.get(i);
+            JLabel label = createValueLabel(factor.getSlider());
+            limits.set(i, new LimitFactor(factor.getName(), factor.getSlider(), label));
         }
 
-        panel.add(Box.createVerticalStrut(12));
-
-        JLabel mainHeader = new JLabel("Hauptvariablen");
-        mainHeader.setFont(new Font("SansSerif", Font.BOLD, 15));
-        mainHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(mainHeader);
-        panel.add(Box.createVerticalStrut(8));
-
+        // Main variables
         JSlider wSlider = createSlider();
         JLabel wValueLabel = createValueLabel(wSlider);
-        JPanel wRow = createSliderRow("Zielklarheit (w)", wSlider, wValueLabel);
-        wRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(wRow);
 
         JSlider cSlider = createSlider();
         JLabel cValueLabel = createValueLabel(cSlider);
-        JPanel cRow = createSliderRow("Konzentration (c)", cSlider, cValueLabel);
-        cRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(cRow);
 
         JSlider tSlider = createSlider();
         JLabel tValueLabel = createValueLabel(tSlider);
-        JPanel tRow = createSliderRow("Zeit (t)", tSlider, tValueLabel);
-        tRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(tRow);
-
-        panel.add(Box.createVerticalStrut(18));
-
-        JLabel noteLabel = new JLabel("Notiz zur Messung (max. 130 Zeichen)");
-        noteLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(noteLabel);
-        panel.add(Box.createVerticalStrut(4));
 
         JTextField noteField = new JTextField();
-        noteField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
-        noteField.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(noteField);
-
         loadUiState(wSlider, cSlider, tSlider, limits, noteField);
 
-        panel.add(Box.createVerticalStrut(12));
-
-        JButton calculate = new JButton("Berechnen");
-        JButton showHistory = new JButton("Verlauf anzeigen");
-        JButton deleteHistoryButton = new JButton("Verlauf löschen");
+        JButton calculate = new RoundedButton(
+                "Berechnen",
+                15,
+                new Color(5, 177, 159),
+                Color.WHITE,
+                new Color(5, 177, 159)
+        );
+        JButton showHistory = new RoundedButton(
+                "Verlauf anzeigen",
+                15,
+                Color.WHITE,
+                new Color(55, 65, 81),
+                new Color(210, 214, 220)
+        );
+        JButton deleteHistoryButton = new RoundedButton(
+                "Verlauf löschen",
+                15,
+                Color.WHITE,
+                new Color(55, 65, 81),
+                new Color(210, 214, 220)
+        );
         calculate.setFocusPainted(false);
         calculate.setAlignmentX(Component.LEFT_ALIGNMENT);
         showHistory.setFocusPainted(false);
         showHistory.setAlignmentX(Component.LEFT_ALIGNMENT);
         deleteHistoryButton.setFocusPainted(false);
         deleteHistoryButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        calculate.setFont(new Font("Noto Sans", Font.BOLD, 18));
+        calculate.setPreferredSize(new Dimension(260, 52));
+        calculate.setMaximumSize(new Dimension(260, 52));
+
+        showHistory.setFont(new Font("Noto Sans", Font.PLAIN, 14));
+        showHistory.setPreferredSize(new Dimension(180, 42));
+        showHistory.setMaximumSize(new Dimension(180, 42));
+
+        deleteHistoryButton.setFont(new Font("Noto Sans", Font.PLAIN, 14));
+        deleteHistoryButton.setPreferredSize(new Dimension(180, 42));
+        deleteHistoryButton.setMaximumSize(new Dimension(180, 42));
+
+        showHistory.setBackground(Color.WHITE);
+        showHistory.setForeground(new Color(55, 65, 81));
+        showHistory.setOpaque(true);
+        showHistory.setFont(new Font("Noto Sans", Font.PLAIN, 14));
+        showHistory.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(210, 214, 220), 1, true),
+                BorderFactory.createEmptyBorder(10, 18, 10, 18)
+        ));
+
+        deleteHistoryButton.setBackground(Color.WHITE);
+        deleteHistoryButton.setForeground(new Color(55, 65, 81));
+        deleteHistoryButton.setOpaque(true);
+        deleteHistoryButton.setFont(new Font("Noto Sans", Font.PLAIN, 14));
+        deleteHistoryButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(210, 214, 220), 1, true),
+                BorderFactory.createEmptyBorder(10, 18, 10, 18)
+        ));
+
+        calculate.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        showHistory.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        deleteHistoryButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        if (calculate instanceof RoundedButton) {
+            ((RoundedButton) calculate).setHoverColors(
+                    new Color(4, 160, 143),
+                    Color.WHITE
+            );
+        }
+
+        if (showHistory instanceof RoundedButton) {
+            ((RoundedButton) showHistory).setHoverColors(
+                    new Color(245, 247, 250),
+                    new Color(34, 39, 46)
+            );
+        }
+
+        if (deleteHistoryButton instanceof RoundedButton) {
+            ((RoundedButton) deleteHistoryButton).setHoverColors(
+                    new Color(245, 247, 250),
+                    new Color(34, 39, 46)
+            );
+        }
 
         showHistory.addActionListener((ActionEvent e) -> showHistoryChart(frame));
 
@@ -975,19 +338,20 @@ public class ErfolgsRechner {
                     "Willst du den gespeicherten Verlauf wirklich löschen?",
                     "Verlauf löschen",
                     JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE
+                    JOptionPane.PLAIN_MESSAGE
             );
 
             if (choice == JOptionPane.YES_OPTION) {
                 boolean deleted = deleteHistory();
-                JOptionPane.showMessageDialog(
+                DIALOG_FACTORY.showStyledMessageDialog(
                         frame,
                         deleted
                                 ? "Der Verlauf wurde gelöscht."
                                 : "Es war kein Verlauf vorhanden oder er konnte nicht gelöscht werden.",
-                        "ErfolgsRechner – Verlauf",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "ErfolgsRechner – Verlauf"
                 );
+                panel.revalidate();
+                panel.repaint();
             }
         };
 
@@ -1000,18 +364,17 @@ public class ErfolgsRechner {
                     "Willst du die gespeicherten Slider-Stände wirklich löschen?",
                     "Statusdatei löschen",
                     JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE
+                    JOptionPane.PLAIN_MESSAGE
             );
 
             if (choice == JOptionPane.YES_OPTION) {
                 boolean deleted = deleteUiState();
-                JOptionPane.showMessageDialog(
+                DIALOG_FACTORY.showStyledMessageDialog(
                         frame,
                         deleted
                                 ? "Die gespeicherten UI-Werte wurden gelöscht."
                                 : "Es war keine Statusdatei vorhanden oder sie konnte nicht gelöscht werden.",
-                        "ErfolgsRechner – Status",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "ErfolgsRechner – Status"
                 );
             }
         });
@@ -1021,20 +384,30 @@ public class ErfolgsRechner {
             frame.dispose();
         });
 
-        ueberItem.addActionListener((ActionEvent e) -> JOptionPane.showMessageDialog(
+        ueberItem.addActionListener((ActionEvent e) -> DIALOG_FACTORY.showStyledMessageDialog(
                 frame,
                 "<html><div style='font-family:sans-serif; width:320px;'>"
                         + "<h2 style='margin-top:0;'>ErfolgsRechner</h2>"
                         + "<p>Ein kleines Tool zur Analyse von Hebeln bei der Zielerreichung.</p>"
-                        + "<p><b>Version:</b> 1.1</p>"
+                        + "<p><b>Version:</b> 1.2</p>"
                         + "<p>Es zeigt, welcher Faktor aktuell den größten Einfluss auf dein Ergebnis hat und visualisiert den Verlauf über Zeit.</p>"
                         + "</div></html>",
-                "Über ErfolgsRechner",
-                JOptionPane.INFORMATION_MESSAGE
+                "Über ErfolgsRechner"
         ));
 
-        calculate.addActionListener((ActionEvent e) -> {
+        final HistoryPreviewChartPanel previewChart = new HistoryPreviewChartPanel(HISTORY_SERVICE);
+        final JLabel topicValue = new JLabel("-");
+        final JLabel timestampValue = new JLabel("-");
+        final JLabel phaseValue = new JLabel("-");
+        final JLabel trendValue = new JLabel("neutral");
+        final JLabel trendIconLabel = new JLabel();
+        final JTextArea recommendationValue = new JTextArea();
+        final JLabel leverValue = new JLabel("-");
+        final JLabel thoughtValue = new JLabel();
+        topicValue.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        topicValue.setToolTipText("Klicken, um ein Thema zu hinterlegen");
 
+        calculate.addActionListener((ActionEvent e) -> {
             double w = wSlider.getValue() / 100.0;
             double c = cSlider.getValue() / 100.0;
             double t = tSlider.getValue() / 100.0;
@@ -1045,13 +418,12 @@ public class ErfolgsRechner {
 
             double min = 1.0;
             for (LimitFactor l : limits) {
-                if (l.value() < min) {
-                    min = l.value();
+                if (l.getValue() < min) {
+                    min = l.getValue();
                 }
             }
 
             double base = (w * c + t);
-
 
             double r = base * min;
             double successPercent = r * 100;
@@ -1119,7 +491,7 @@ public class ErfolgsRechner {
                 LimitFactor factor = limits.get(i);
                 List<Double> candidateLimitValues = new ArrayList<>();
                 for (int j = 0; j < limits.size(); j++) {
-                    double value = limits.get(j).value();
+                    double value = limits.get(j).getValue();
                     if (i == j) {
                         value = Math.min(1.0, value + 0.10);
                     }
@@ -1132,13 +504,13 @@ public class ErfolgsRechner {
                     secondLeverDelta = bestLeverDelta;
                     secondLeverName = bestLeverName;
                     bestLeverDelta = candidateDelta;
-                    bestLeverName = factor.name;
-                    bestLeverCurrentValue = factor.value() * 100;
-                    bestLeverImprovedValue = Math.min(1.0, factor.value() + 0.10) * 100;
+                    bestLeverName = factor.getName();
+                    bestLeverCurrentValue = factor.getValue() * 100;
+                    bestLeverImprovedValue = Math.min(1.0, factor.getValue() + 0.10) * 100;
                     bestLeverResult = candidateResult;
                 } else if (candidateDelta > secondLeverDelta) {
                     secondLeverDelta = candidateDelta;
-                    secondLeverName = factor.name;
+                    secondLeverName = factor.getName();
                 }
             }
 
@@ -1147,136 +519,146 @@ public class ErfolgsRechner {
 
             String trendSummary = buildTrendSummary();
 
-            String recommendationTitle = "Empfehlung für heute";
-            StringBuilder recommendationText = new StringBuilder();
-
-            switch (bestLeverName) {
-                case "Energie":
-                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Energie: weniger Druck, klare Pausen, Bewegung, Schlaf und nur die wichtigsten Aufgaben.");
-                    break;
-                case "Emotionale Stabilität":
-                    recommendationText.append("Der größte Hebel liegt aktuell in deiner emotionalen Stabilität: offene Schleifen schließen, Erwartungen senken, Reize reduzieren und für mehr Ruhe im System sorgen.");
-                    break;
-                case "Ressourcen":
-                    recommendationText.append("Der größte Hebel liegt aktuell bei deinen Ressourcen: priorisieren, delegieren, vereinfachen oder verschieben.");
-                    break;
-                case "Wissenstand":
-                    recommendationText.append("Der größte Hebel liegt aktuell im Wissen: kurz recherchieren, nachfragen oder eine Wissenslücke gezielt schließen.");
-                    break;
-                case "Zielklarheit":
-                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Zielklarheit: den nächsten Schritt sauber definieren und die Richtung schärfen.");
-                    break;
-                case "Konzentration":
-                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Konzentration: Ablenkung reduzieren und Fokus bewusst schützen.");
-                    break;
-                case "Zeit":
-                    recommendationText.append("Der größte Hebel liegt aktuell in deiner Zeit: bewusst ein größeres Zeitfenster freischaufeln und Prioritäten schärfen.");
-                    break;
-                default:
-                    recommendationText.append("Richte deine Aufmerksamkeit zuerst auf den aktuell größten Hebel, bevor du auf maximalen Output gehst.");
-                    break;
-            }
+            StringBuilder recommendationText = new StringBuilder(
+                    buildRecommendationForLever(bestLeverName)
+            );
 
             if (!secondLeverName.isEmpty() && !secondLeverName.equals(bestLeverName)) {
-                switch (secondLeverName) {
-                    case "Energie":
-                        recommendationText.append(" Versuche bitte zusätzlich deine Energie etwas bewusster zu schützen.");
-                        break;
-                    case "Emotionale Stabilität":
-                        recommendationText.append(" Am Rande macht es auch Sinn, etwas mehr emotionale Ruhe in dein System zu bringen.");
-                        break;
-                    case "Ressourcen":
-                        recommendationText.append(" Um mehr Stabilität zu generieren, ordne deine Ressourcen etwas klüger bzw. suche dir passende Hilfe.");
-                        break;
-                    case "Wissenstand":
-                        recommendationText.append(" Damit du weißt was du tust, solltest du deine kleine Wissenslücke gezielt schließen.");
-                        break;
-                    case "Zielklarheit":
-                        recommendationText.append(" Damit du deine Energie nicht verpulverst, zieh dein Ziel noch etwas klarer und entscheide den nächsten Schritt sauber.");
-                        break;
-                    case "Konzentration":
-                        recommendationText.append(" Damit deine Energie nicht verpufft, schütze deinen Fokus etwas konsequenter vor Ablenkung.");
-                        break;
-                    case "Zeit":
-                        recommendationText.append(" Damit dein Vorhaben wirklich Raum bekommt, schaufle dir zusätzlich ein wenig mehr Zeit frei.");
-                        break;
-                    default:
-                        recommendationText.append(" Behalte daneben auch den zweitgrößten Hebel im Blick, weil dort zusätzlicher Schwung entstehen kann.");
-                        break;
-                }
+                recommendationText.append(buildSecondLeverHint(secondLeverName));
             }
 
-            DecimalFormat df = new DecimalFormat("0.00");
             String successPhase = getSuccessPhase(successPercent);
 
-            String leverText = "Der aktuell größte Hebel ist " + bestLeverName
-                    + ". Wenn du diesen Wert um 10 Prozentpunkte verbesserst ("
-                    + df.format(bestLeverCurrentValue) + "% → "
-                    + df.format(bestLeverImprovedValue) + "%), steigt deine Erfolgswahrscheinlichkeit von "
-                    + df.format(successPercent) + "% auf "
-                    + df.format(bestLeverResult) + "% ("
-                    + (bestLeverDelta >= 0 ? "+" : "")
-                    + df.format(bestLeverDelta) + " Prozentpunkte).";
+            String leverText = ANALYSIS_RESULT_SERVICE.buildLeverText(
+                    bestLeverName,
+                    bestLeverCurrentValue,
+                    bestLeverImprovedValue,
+                    successPercent,
+                    bestLeverResult,
+                    bestLeverDelta
+            );
 
-            String message = "<html>"
-                    + "<div style='font-family:sans-serif; padding:14px 16px; width:500px; color:#222;'>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Analyse deines aktuellen Zustands</div>"
-                    + "<h2 style='margin:0 0 12px 0;'>Ergebnisanalyse | " + successPhase + "</h2>"
-
-                    + "<div style='margin-bottom:10px; padding:10px 12px; border:1px solid #d8d8d8; background:#f7f7f7;'>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Stärkster aktueller Hebel</div>"
-                    + "<div style='font-size:18px; font-weight:bold; margin-bottom:6px;'>" + bestLeverName + "</div>"
-                    + "<div><b>Aktueller Wert:</b> " + df.format(bestLeverCurrentValue) + "%</div>"
-                    + "<div><b>Potenzial bei +10 Punkten:</b> " + (bestLeverDelta >= 0 ? "+" : "") + df.format(bestLeverDelta) + " Prozentpunkte</div>"
-                    + "</div>"
-
-                    + "<div style='margin-bottom:10px;'>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Leistungsbild</div>"
-                    + "<div><b>Basisleistung (w × c + t):</b> " + df.format(base) + "</div>"
-                    + "<div><b>Erwartete Erfolgswahrscheinlichkeit:</b> " + df.format(successPercent) + "%</div>"
-                    + (!note.isEmpty() ? "<div><b>Notiz:</b> " + note + "</div>" : "")
-                    + "</div>"
-
-                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
-                    + "<div style='margin-bottom:10px;'>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Wirkung einer kleinen Verbesserung</div>"
-                    + "<div>" + leverText + "</div>"
-                    + "</div>"
-
-                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
-                    + "<div style='margin-bottom:10px;'>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Verlauf</div>"
-                    + "<div>" + trendSummary.replace("<p>", "").replace("</p>", "") + "</div>"
-                    + "</div>"
-
-                    + "<hr style='border:none; border-top:1px solid #dcdcdc; margin:10px 0;'>"
-                    + "<div>"
-                    + "<div style='font-size:13px; color:#666; margin-bottom:4px;'>Empfehlung für heute</div>"
-                    + "<div>" + recommendationText.toString() + "</div>"
-                    + "</div>"
-                    + "</div></html>";
+            String message = ANALYSIS_RESULT_SERVICE.buildResultHtml(
+                    successPhase,
+                    bestLeverName,
+                    bestLeverCurrentValue,
+                    bestLeverDelta,
+                    base,
+                    successPercent,
+                    note,
+                    leverText,
+                    trendSummary,
+                    recommendationText.toString()
+            );
 
             noteField.setText("");
-            JOptionPane.showMessageDialog(
+            previewChart.repaint();
+                    OVERVIEW_SERVICE.updateOverviewCard(
+                            topicValue,
+                            timestampValue,
+                            phaseValue,
+                            trendValue,
+                            trendIconLabel,
+                            leverValue,
+                            recommendationValue,
+                            thoughtValue,
+                            randomThought,
+                            arrowUpIcon,
+                            arrowRightIcon,
+                            arrowDownIcon,
+                            currentTopic[0]
+                    );
+            DIALOG_FACTORY.showStyledMessageDialog(
                     frame,
                     message,
-                    "ErfolgsRechner – Ergebnis",
-                    JOptionPane.INFORMATION_MESSAGE
+                    "ErfolgsRechner – Ergebnis"
             );
         });
+        InputPanel inputPanel = new InputPanel(
+                limits,
+                wSlider,
+                wValueLabel,
+                cSlider,
+                cValueLabel,
+                tSlider,
+                tValueLabel,
+                noteField,
+                calculate
+        );
+        inputPanel.setAlignmentY(Component.TOP_ALIGNMENT);
 
-        JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        buttonRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        buttonRow.add(calculate);
-        buttonRow.add(showHistory);
-        buttonRow.add(deleteHistoryButton);
+        JPanel dashboardCard = DashboardPanel.createDashboardCard(
+                dashboardCardHeight,
+                topicValue,
+                timestampValue,
+                phaseValue,
+                trendValue,
+                trendIconLabel,
+                leverValue,
+                recommendationValue,
+                thoughtValue
+        );
 
-        panel.add(buttonRow);
+        JPanel previewCard = DashboardPanel.createPreviewCard(
+                previewChart,
+                showHistory,
+                previewCardHeight
+        );
 
-        JScrollPane scrollPane = new JScrollPane(panel);
-        scrollPane.setBorder(null);
+        DashboardPanel dashboardPanel = new DashboardPanel(
+                dashboardCard,
+                previewCard,
+                rightColumnGap,
+                leftCardHeight
+        );
 
-        frame.add(scrollPane, BorderLayout.CENTER);
+        topicValue.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                String input = JOptionPane.showInputDialog(
+                        frame,
+                        "Aktuelles Thema eingeben:",
+                        currentTopic[0] == null ? "" : currentTopic[0]
+                );
+                if (input != null) {
+                    currentTopic[0] = input.trim();
+                    saveCurrentTopic(currentTopic[0]);
+                    OVERVIEW_SERVICE.updateOverviewCard(
+                        topicValue,
+                        timestampValue,
+                        phaseValue,
+                        trendValue,
+                        trendIconLabel,
+                        leverValue,
+                        recommendationValue,
+                        thoughtValue,
+                        randomThought,
+                        arrowUpIcon,
+                        arrowRightIcon,
+                        arrowDownIcon,
+                        currentTopic[0]
+                );
+                }
+            }
+        });
+
+        OVERVIEW_SERVICE.updateOverviewCard(
+                topicValue,
+                timestampValue,
+                phaseValue,
+                trendValue,
+                trendIconLabel,
+                leverValue,
+                recommendationValue,
+                thoughtValue,
+                randomThought,
+                arrowUpIcon,
+                arrowRightIcon,
+                arrowDownIcon,
+                currentTopic[0]
+        );
+        panel.add(inputPanel, BorderLayout.WEST);
+        panel.add(dashboardPanel, BorderLayout.CENTER);
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
@@ -1293,16 +675,18 @@ public class ErfolgsRechner {
                 File selectedFile = chooser.getSelectedFile();
                 boolean exported = exportHistoryAsCsv(selectedFile);
 
-                JOptionPane.showMessageDialog(
+                DIALOG_FACTORY.showStyledMessageDialog(
                         frame,
                         exported
                                 ? "Der Verlauf wurde als CSV exportiert."
                                 : "Es sind keine Verlaufsdaten vorhanden oder der Export ist fehlgeschlagen.",
-                        "ErfolgsRechner – CSV Export",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "ErfolgsRechner – CSV Export"
                 );
             }
         });
         frame.setVisible(true);
+    }
+    public static void main(String[] args) {
+        startApp();
     }
 }
