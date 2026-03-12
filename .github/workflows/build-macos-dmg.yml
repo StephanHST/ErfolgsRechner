@@ -3,10 +3,10 @@ name: Build macOS DMG
 
 on:
   workflow_dispatch:
-  
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  
+
 jobs:
   build:
     runs-on: macos-latest
@@ -23,7 +23,11 @@ jobs:
 
       - name: Ordner anlegen
         run: |
-          mkdir -p out package-input build
+          mkdir -p out package-input build signing
+
+      - name: Java kompilieren
+        run: |
+          find ErfolgsRechner -name "*.java" -print0 | xargs -0 javac -d out
 
       - name: Assets nach out kopieren
         run: |
@@ -31,10 +35,7 @@ jobs:
           cp ErfolgsRechner/assets/arrowUp.png out/Java/ErfolgsRechner/assets/
           cp ErfolgsRechner/assets/arrowRight.png out/Java/ErfolgsRechner/assets/
           cp ErfolgsRechner/assets/arrowDown.png out/Java/ErfolgsRechner/assets/
-
-      - name: Java kompilieren
-        run: |
-          find ErfolgsRechner -name "*.java" -print0 | xargs -0 javac -d out
+          cp ErfolgsRechner/assets/thoughts.json out/Java/ErfolgsRechner/assets/
 
       - name: JAR bauen
         run: |
@@ -44,7 +45,32 @@ jobs:
         run: |
           cp ErfolgsRechner.jar package-input/
 
-      - name: DMG bauen
+      - name: Signier-Zertifikat importieren
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > signing/certificate.p12
+
+          security create-keychain -p temp-password build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p temp-password build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+
+          security import signing/certificate.p12 \
+            -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -T /usr/bin/productbuild
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k temp-password build.keychain
+
+          security find-identity -v -p codesigning build.keychain
+
+      - name: DMG bauen und signieren
         run: |
           jpackage \
             --input package-input \
@@ -55,7 +81,30 @@ jobs:
             --type dmg \
             --icon ErfolgsRechner/assets/ErfolgsRechner.icns \
             --app-version 1.2 \
-            --vendor "Stephan Hofmann"
+            --vendor "Stephan Hofmann" \
+            --mac-sign \
+            --mac-signing-keychain build.keychain \
+            --mac-signing-key-user-name "Developer ID Application: STEPHAN HOFMANN (Q6V7RT65F9)"
+
+      - name: DMG notarize-n
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit build/*.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: DMG stapeln
+        run: |
+          xcrun stapler staple build/*.dmg
+
+      - name: Gatekeeper prüfen
+        run: |
+          spctl -a -vvv -t open --context context:primary-signature build/*.dmg || true
 
       - name: Artifact hochladen
         uses: actions/upload-artifact@v4
