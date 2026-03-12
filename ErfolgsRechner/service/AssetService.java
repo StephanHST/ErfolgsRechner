@@ -28,7 +28,30 @@ public class AssetService {
 
     public List<String> loadThoughts() {
         List<String> thoughts = new ArrayList<>();
-        File file = resolveAssetFile("/Java/ErfolgsRechner/assets/thoughts.json");
+        try {
+            java.net.URL resource = getClass().getResource("/Java/ErfolgsRechner/assets/thoughts.json");
+            if (resource != null) {
+                String json = Files.readString(java.nio.file.Paths.get(resource.toURI()));
+                Matcher matcher = Pattern.compile("\\\"((?:\\\\.|[^\\\"])*)\\\"").matcher(json);
+
+                while (matcher.find()) {
+                    String thought = matcher.group(1)
+                            .replace("\\\"", "\"")
+                            .replace("\\n", " ")
+                            .replace("\\r", " ")
+                            .trim();
+
+                    if (!thought.isEmpty()) {
+                        thoughts.add(thought);
+                    }
+                }
+
+                return thoughts;
+            }
+        } catch (Exception ignored) {
+        }
+
+        File file = resolveAssetFile("thoughts.json");
 
         if (file == null || !file.exists()) {
             return thoughts;
