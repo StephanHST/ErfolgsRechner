@@ -84,7 +84,8 @@ jobs:
             --vendor "Stephan Hofmann" \
             --mac-sign \
             --mac-signing-keychain build.keychain \
-            --mac-signing-key-user-name "Developer ID Application: STEPHAN HOFMANN (Q6V7RT65F9)"
+            --mac-signing-key-user-name "Developer ID Application: STEPHAN HOFMANN (Q6V7RT65F9)" \
+            --mac-package-identifier de.stephanhofmann.erfolgsrechner
 
       - name: DMG notarize-n
         env:
